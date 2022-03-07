@@ -1,5 +1,5 @@
-##### JSON_STRUCT
-## https://github.com/jorgen/json_struct
+JSON_STRUCT - https://github.com/jorgen/json_struct
+==================================================
 
 Copyright © 2012 Jørgen Lind
 
@@ -21,8 +21,8 @@ DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 OF THIS SOFTWARE.
 
-##### GLM
-## https://github.com/g-truc/glm
+GLM - https://github.com/g-truc/glm
+===================================
 
 The MIT License
 --------------------------------------------------------------------------------
@@ -46,9 +46,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-##### TinyTiff
-## https://github.com/jkriege2/TinyTIFF
-
+TinyTiff - https://github.com/jkriege2/TinyTIFF
+===============================================
                    GNU LESSER GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -215,9 +214,8 @@ apply, that proxy's public statement of acceptance of any version is
 permanent authorization for you to choose that version for the
 Library.
 
-##### OpenCL-SDK
-## https://github.com/KhronosGroup/OpenCL-SDK
-
+OpenCL-SDK - https://github.com/KhronosGroup/OpenCL-SDK
+=======================================================
                                 Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

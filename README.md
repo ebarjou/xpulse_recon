@@ -6,21 +6,15 @@ Fast out-of-core and external memory-driven GPU-based CBCT reconstruction of lar
 # Description
 [Linked paper](url)
 
-[XPulse Project]([url](http://www.atlas-onco.com/xpulse.html))
+[XPulse Project](http://www.atlas-onco.com/xpulse.html)
 
 # Build
-This project is built using CMake. It requires a working OpenCL environment.
+This project can be build using CMake. It requires a working OpenCL environment.
 
 ## Cloning
 ```cmd
 git clone --recurse-submodules https://github.com/ebarjou/xpulse_recon
 cd xpulse_recon
-```
-or
-```cmd
-git clone --recurse-submodules https://github.com/ebarjou/xpulse_recon
-cd xpulse_recon
-git submodule update --init --recursive
 ```
 ## Build (Windows, MSVC)
 ```cmd
@@ -44,7 +38,7 @@ XPRecon -template|<json_file>|<json>
         <json_file> : path to the parameters file
         <json> : parameters as a JSON string (starting with a '{')
 ```
-This program takes a stack of FP-32bits TIFF (uncompressed) as input. Start the program with a configuration file as argument.
+This program takes a stack of FP-32bits TIFF (uncompressed) as input. Start the program with a configuration file as argument to execute the reconstruction.
 ## Configuration file
 The program takes a JSON file containing all necessary parameters for the reconstruction as the unique argument.
 

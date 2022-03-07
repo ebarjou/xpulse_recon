@@ -1,0 +1,12 @@
+[submodule "external/opencl-sdk"]
+	path = external/opencl-sdk
+	url = https://github.com/KhronosGroup/OpenCL-SDK
+[submodule "external/json_struct"]
+	path = external/json_struct
+	url = https://github.com/jorgen/json_struct
+[submodule "external/tinytiff"]
+	path = external/tinytiff
+	url = https://github.com/jkriege2/TinyTIFF
+[submodule "external/glm"]
+	path = external/glm
+	url = https://github.com/g-truc/glm

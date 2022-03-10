@@ -9,7 +9,7 @@ class ReconstructionIPR : public reconstruction::Reconstruction {
     int64_t width, height;
 
 public:
-    ReconstructionIPR(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters),
+    ReconstructionIPR(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters)
     {
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");

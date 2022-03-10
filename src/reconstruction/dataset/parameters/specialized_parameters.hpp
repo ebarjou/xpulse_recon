@@ -16,6 +16,14 @@ struct ReconHartmannData {
     JS_OBJ(devx, devy, iterations, iterations_fct, iterations_step, method);
 };
 
+struct ReconIPRData {
+    float iterations = 0;
+    float iterations_fct = 1;
+    int64_t iterations_step = 1;
+
+    JS_OBJ(iterations, iterations_fct, iterations_step);
+};
+
 typedef struct {
     int64_t vOffset, vSize;
     int64_t iOffset, iSize;

@@ -46,7 +46,7 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <future>
 
 //Should be in parameters.hpp, but json_struct does not handle namepaces nicely
-JS_ENUM(Method, naive, method_1a, method_1b, method_2);
+JS_ENUM(Method, naive, method_1a, method_1b, method_2, hartmann, ipr);
 JS_ENUM_DECLARE_STRING_PARSER(Method);
 
 JS_ENUM(MethodPhase, jacobi, gs, sor, simpson);
@@ -97,6 +97,12 @@ int main(int argc, char* argv[]) {
                 break;
             case Method::method_2:
                 recon = new reconstruction::ReconstructionChunk(&parameters);
+                break;
+            case Method::hartmann:
+                recon = new reconstruction::ReconstructionHartmann(&parameters);
+                break;
+            case Method::ipr:
+                recon = new reconstruction::ReconstructionIPR(&parameters);
                 break;
             default:
                 break;

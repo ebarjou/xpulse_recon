@@ -73,10 +73,9 @@ public:
         _ocl.writeQueue = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
         CHECK(error_queue_creation)
         std::cout << "Ok." << std::endl;
-
+        //TODO : fix AMD memory detection
         //Get the real available size for our buffers
         //This method seems to work correctly on NVIDIA but not on AMD gpus
-        //When using AMD, the platform-specific "" can be used
         //Otherwise, just take a percent of total memory (ex "_ocl.memorySize *= 0.8;")
         {
             _ocl.memorySize = 0;

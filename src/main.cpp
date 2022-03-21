@@ -4,6 +4,7 @@
  */
 
 #define CL_HPP_TARGET_OPENCL_VERSION 300
+#define _USE_MATH_DEFINES
 
 /**
  * Ask the GPU driver to enable the high-performance GPU if available.
@@ -31,6 +32,7 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <tinytiffwriter.h>
 #include <omp.h>
 #include <json_struct.h>
+#include <pocketfft_hdronly.h>
 
 #include <iostream>
 #include <vector>
@@ -44,6 +46,8 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <vector>
 #include <sstream>
 #include <future>
+#include <complex>
+#include <math.h>
 
 //Should be in parameters.hpp, but json_struct does not handle namepaces nicely
 JS_ENUM(Method, naive, method_1a, method_1b, method_2, hartmann, ipr);
@@ -77,8 +81,8 @@ int main(int argc, char* argv[]) {
     reconstruction::dataset::Parameters parameters;
     try {
         parameters = reconstruction::dataset::loadParameters(argv[1]);
-    } catch(std::runtime_error err) {
-        std::cerr << "Error while creating the parameters object : " << err.what() << std::endl;
+    } catch(std::exception err) {
+        std::cerr << err.what() << std::endl;
         return RETURN_CODE_ERROR_PARAMETERS;
     }
 

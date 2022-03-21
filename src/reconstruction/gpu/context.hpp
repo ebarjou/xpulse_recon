@@ -6,6 +6,7 @@
 #pragma once
 
 enum MEM_ACCESS {MEM_ACCESS_READ, MEM_ACCESS_WRITE, MEM_ACCESS_RW, MEM_ACCESS_NONE};
+enum VENDOR {VENDOR_NVIDIA, VENDOR_AMD, VENDOR_INTEL, VENDOR_OTHER};
 
 struct Ocl {
     cl::Device device;
@@ -14,6 +15,7 @@ struct Ocl {
     cl::CommandQueue readQueue;
     cl::CommandQueue writeQueue;
     uint64_t memorySize = 0, maxAllocSize = 0;
+    VENDOR vendor;
 };
 
 struct Buffer {
@@ -55,6 +57,15 @@ public:
                     _ocl.device = device;
                     _ocl.memorySize = memorySize;
                     _ocl.maxAllocSize = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
+                    if(platformName.find("NVIDIA") != std::string::npos) {
+                        _ocl.vendor = VENDOR_NVIDIA;
+                    } else if(platformName.find("AMD") != std::string::npos) {
+                        _ocl.vendor = VENDOR_AMD;
+                    } else if(platformName.find("INTEL") != std::string::npos) {
+                        _ocl.vendor = VENDOR_INTEL;
+                    } else  {
+                        _ocl.vendor = VENDOR_OTHER;
+                    }
                 }
             }
         }
@@ -73,25 +84,31 @@ public:
         _ocl.writeQueue = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
         CHECK(error_queue_creation)
         std::cout << "Ok." << std::endl;
-
-        //Get the real available size for our buffers
-        //This method seems to work correctly on NVIDIA but not on AMD gpus
-        //When using AMD, the platform-specific "" can be used
-        //Otherwise, just take a percent of total memory (ex "_ocl.memorySize *= 0.8;")
-        {
-            _ocl.memorySize = 0;
-            uint32_t sizeStep = 128*1024*1024; //256Mb
-            std::vector<cl::Buffer> buffers;
-            while(true) {
-                try {
-                    buffers.push_back(allocateBuffer(sizeStep, MEM_ACCESS_READ, MEM_ACCESS_READ));
-                    wait();
-                    _ocl.memorySize += sizeStep;
-                } catch(...) {
-                    break;
+        //Get the real available size for our buffers by filling the VRAM until it's full.
+        //This method seems to work correctly on NVIDIA but not on AMD gpus since buffers are cached in RAM
+        //So otherwise, just take a the total memory minus 512Mb (at least 256Mb are reseverved according to OpenCL devs)
+        switch(_ocl.vendor) {
+            case VENDOR_NVIDIA: {
+                _ocl.memorySize = 0;
+                uint32_t sizeStep = 128*1024*1024; //256Mb
+                std::vector<cl::Buffer> buffers;
+                while(true) {
+                    try {
+                        buffers.push_back(allocateBuffer(sizeStep, MEM_ACCESS_READ, MEM_ACCESS_READ));
+                        wait();
+                        _ocl.memorySize += sizeStep;
+                    } catch(...) {
+                        break;
+                    }
                 }
+            } break;
+            case VENDOR_AMD: 
+            case VENDOR_INTEL: 
+            case VENDOR_OTHER: {
+                _ocl.memorySize = _ocl.memorySize -512*1024*1024; //512Mb
             }
         }
+        
         std::cout << "Selected " << _ocl.device.getInfo<CL_DEVICE_NAME>() << ": " << _ocl.memorySize/(1024.0*1024.0) << "Mb available, " << _ocl.maxAllocSize/(1024.0*1024.0) << "Mb max per alloc." << std::endl;
     }
 

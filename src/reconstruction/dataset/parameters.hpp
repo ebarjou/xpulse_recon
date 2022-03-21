@@ -14,6 +14,7 @@
 #define prm_md _parameters->detector.modules
 #define prm_m2 _parameters->method2
 #define prm_hm _parameters->hartmann
+#define prm_ipr _parameters->ipr
 
 struct Parameters {
     struct ReconstructionData recon;
@@ -21,7 +22,8 @@ struct Parameters {
     struct DetectorData detector;
     struct ReconMethod2Data method2;
     struct ReconHartmannData hartmann;
-    JS_OBJ(recon, geometry, detector, method2, hartmann);
+    struct ReconIPRData ipr;
+    JS_OBJ(recon, geometry, detector, method2, hartmann, ipr);
 };
 
 /**
@@ -55,24 +57,26 @@ void initializeParameters(Parameters *_parameters) {
 Parameters loadParameters(std::string file_or_content) {
     Parameters parameters;
 
-    if(file_or_content[0] != '{') { // If argument start with "{", assume it's json data and parse it
+    if(file_or_content[0] != '{') { // Read arg as file; If argument start with "{", assume it's json data and parse it
         std::ifstream t(file_or_content);
         std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
         if(str.empty()) {
-            throw std::runtime_error("Can not read the parameters file");
+            throw std::exception("Can not read the parameters file");
         }
         JS::ParseContext context(str.c_str());
         if (context.parseTo(parameters) != JS::Error::NoError) {
-            throw std::runtime_error(context.makeErrorString());
+            std::cout << context.makeErrorString();
+            throw std::exception("Error while parsing the parameter file");
         }
     } else { // Load the file content and parse it
         JS::ParseContext context(file_or_content);
         if (context.parseTo(parameters) != JS::Error::NoError) {
-            throw std::runtime_error(context.makeErrorString());
+            std::cout << context.makeErrorString();
+            throw std::exception("Error while parsing the parameter string");
         }
     }
     if(parameters.detector.modules.size() == 0) {
-        throw std::runtime_error("No detector module given");
+        throw std::exception("No detector module given");
     }
 
     initializeParameters(&parameters);

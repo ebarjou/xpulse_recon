@@ -20,8 +20,9 @@ struct ReconIPRData {
     float iterations = 0;
     float iterations_fct = 1;
     int64_t iterations_step = 1;
+    float energy_kev = 1;
 
-    JS_OBJ(iterations, iterations_fct, iterations_step);
+    JS_OBJ(iterations, iterations_fct, iterations_step, energy_kev);
 };
 
 typedef struct {

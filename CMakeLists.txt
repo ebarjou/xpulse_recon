@@ -37,6 +37,10 @@ set(BUILD_TESTS OFF CACHE BOOL "disable" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "disable" FORCE)
 set(BUILD_DOCS OFF CACHE BOOL "disable" FORCE)
 set(OPENCL_SDK_BUILD_SAMPLES OFF CACHE BOOL "disable" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "disable" FORCE)
+set(BUILD_DOCS OFF CACHE BOOL "disable" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "disable" FORCE)
+set(OPENCL_SDK_TEST_SAMPLES OFF CACHE BOOL "disable" FORCE)
 
 add_subdirectory(external/tinytiff)
 add_subdirectory(external/opencl-sdk)
@@ -45,6 +49,7 @@ include_directories(external/json_struct/include)
 include_directories(external/tinytiff/src)
 include_directories(external/glm/glm)
 include_directories(external/opencl-sdk/external/OpenCL-CLHPP/include)
+include_directories(external/pocketfft)
 
 #Setup source files
 set(CPP_LIST ${})

@@ -85,5 +85,6 @@ This repository depends on four sub-modules :
 * [GLM](https://github.com/g-truc/glm) : Linear algebra
 * [OpenCL-SDK](https://github.com/KhronosGroup/OpenCL-SDK) : OpenCL Binding
 * [TinyTIFF](https://github.com/jkriege2/TinyTIFF) : TIFF image reading and writing
-
+* [PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft) : FFT for experimental Iterative FSP reconstruction
+* 
 The licenses can be found in [EXTERNAL_LICENSES.md](https://github.com/ebarjou/xpulse_recon/blob/master/EXTERNAL_LICENSES.md)

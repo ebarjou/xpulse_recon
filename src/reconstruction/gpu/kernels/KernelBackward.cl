@@ -7,7 +7,8 @@
 
 kernel void Backward(   global float* restrict volume, 
                         global const float* restrict sumImages,
-                        constant const ProjData* restrict projData,
+                        //constant const ProjData* restrict projData,
+                        global const ProjData* restrict projData,
                         const uint4 size, //Size of the total volume, in voxel
                         const float4 origin, //Origin of the volume, in mm
                         const uint angleNumber,
@@ -27,12 +28,14 @@ kernel void Backward(   global float* restrict volume,
 
     for(uint i = 0, m = 0; m < angleNumber*modulePerAngle; ++m, i = m/modulePerAngle) {
         const ProjData _projData = projData[m];
-        const float2 position2D = min(mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x), (float2)(MAXFLOAT, lineOffsetY.y-1));
+        //const float2 position2D = min(mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x), (float2)(MAXFLOAT, lineOffsetY.y-1));
+        //TODO: check ici et forward pour limites chunk
+        const float2 position2D = mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x);
         const int2 coordinate2D = convert_int2(round(position2D));
         
-        const bool bounds = all( isgreaterequal(convert_float2(coordinate2D), _projData.vp.even) && isless(convert_float2(coordinate2D), _projData.vp.odd) );
+        const bool bounds = all( isgreaterequal(convert_float2(coordinate2D), _projData.vp.even) && isless(convert_float2(coordinate2D), _projData.vp.odd));
         sum += bounds?sumImages[IMAGE_OFFSET_2D(i, coordinate2D)]:0;
-        contributions += bounds;
+        contributions += bounds==true;
     }
     volume[id] = value * exp(sum/contributions);
 }

@@ -85,7 +85,7 @@ namespace reconstruction {
             setSumImagesBuffer(sumImagesBuffer);
             setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
             setImageOffset({0, prm_g.dheight});
-            setAngleNumber(prm_g.concurrent_projections, prm_md.size());
+            setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
             
             float weight = prm_r.weight;
             int samples = 32;
@@ -314,6 +314,7 @@ namespace reconstruction {
     #include "reconstruction/reconstruction_n.hpp"
     #include "reconstruction/reconstruction_lpln.hpp"
     #include "reconstruction/reconstruction_lpla.hpp"
+    #include "reconstruction/reconstruction_cpc.hpp"
     #include "reconstruction/reconstruction_chunk.hpp"
     #include "reconstruction/reconstruction_hartmann.hpp"
     #include "reconstruction/reconstruction_ipr.hpp"

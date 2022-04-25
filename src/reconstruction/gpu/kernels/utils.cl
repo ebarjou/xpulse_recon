@@ -5,10 +5,10 @@
 
 #include "constants.cl"
 
-#define start(v) v.x
+#define offset(v) v.x
 #define end(v) v.y
-#define step(v) v.z
-#define group(v) v.w
+#define stride(v) v.z
+#define pos(v,i) v.x+i*v.z 
 
 #define r0(m) m.lo.lo
 #define r1(m) m.lo.hi

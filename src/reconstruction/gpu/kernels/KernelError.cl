@@ -19,5 +19,6 @@ kernel void Error(  global const float* restrict images,
     const float got = FIXED_TO_FLOAT(sumImages[id]);
     union { float f; fixed32 v; } result;
     result.f = log(max(ref/max(got,EPSILON), EPSILON))*weight;
+    //result.f = ref/max(got,EPSILON);
     sumImages[id] = result.v;
 }

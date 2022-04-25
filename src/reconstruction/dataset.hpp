@@ -180,12 +180,12 @@ namespace dataset {
             prm_g.concurrent_projections = int64_t(std::floor( float(prm_g.projections) / float(prm_r.sit) ));
             prm_g.dwidth = _width;
             prm_g.dheight = _height;
-            for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
+            /*for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
                 if(!(prm_md[i].start_x.assigned)) prm_md[i].start_x = 0;
                 if(!(prm_md[i].end_x.assigned)) prm_md[i].end_x = prm_g.dwidth;
                 if(!(prm_md[i].start_y.assigned)) prm_md[i].start_y = 0;
                 if(!(prm_md[i].end_y.assigned)) prm_md[i].end_y = prm_g.dheight;
-            }
+            }*/
             return tiff_files;
         }
 

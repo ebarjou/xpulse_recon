@@ -49,7 +49,7 @@ public:
         setImagesBuffer(imagesBuffer);
         setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
         setImageOffset({0, prm_g.dheight});
-        setAngleNumber(prm_g.concurrent_projections, prm_md.size());
+        setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
 
         setBuffer(sumImagesBuffer, FIXED_FRAC_ONE);
         

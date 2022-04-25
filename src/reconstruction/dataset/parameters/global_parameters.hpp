@@ -44,8 +44,10 @@ struct DetectorModuleData {
 
 struct DetectorData {
     float px = 0.1f, rx = 0.0f, sx = 0.0f, sy = 0.0f;
-    std::vector<DetectorModuleData> modules{DetectorModuleData()};
+    int64_t module_number = 1;
+    float module_center_offset_z = 0.0f;
+    //std::vector<DetectorModuleData> modules{DetectorModuleData()};
 
-    JS_OBJ(px, rx, sx, sy, modules);
+    JS_OBJ(px, rx, sx, sy, module_number, module_center_offset_z);
 };
 

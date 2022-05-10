@@ -29,12 +29,12 @@ namespace reconstruction {
      */
     class Reconstruction : protected gpu::Context {
         std::random_device _randomDevice;
-        std::mt19937 _randomEngine = std::mt19937(_randomDevice());
         gpu::Kernel _kforward, _kbackward, _kerror;
     protected:
         dataset::Parameters *_parameters;
         Dataset _dataset;
-
+        std::mt19937 _randomEngine = std::mt19937(_randomDevice());
+        
     public:
         Reconstruction(dataset::Parameters *parameters) : gpu::Context(), 
                             _kforward(getOcl(), kernel_forward_source, "Forward"), 
@@ -314,7 +314,7 @@ namespace reconstruction {
     #include "reconstruction/reconstruction_n.hpp"
     #include "reconstruction/reconstruction_lpln.hpp"
     #include "reconstruction/reconstruction_lpla.hpp"
-    #include "reconstruction/reconstruction_cpc.hpp"
+    #include "reconstruction/reconstruction_lplh.hpp"
     #include "reconstruction/reconstruction_chunk.hpp"
     #include "reconstruction/reconstruction_hartmann.hpp"
     #include "reconstruction/reconstruction_ipr.hpp"

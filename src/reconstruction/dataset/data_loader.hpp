@@ -186,6 +186,18 @@ public:
     }
 
     /**
+     * @brief Get the Images data
+     * 
+     * @param id index of the image
+     * @return std::vector<float> 
+     */
+    std::vector<float> getImage(int64_t id) {
+        auto image = loadTIFF(_tiff_files[id], prm_g.dwidth, prm_g.dheight);
+        if(prm_r.mlog) std::for_each(image.begin(), image.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
+        return image;
+    }
+
+    /**
      * @brief Get all images, cropped to fit a chunk, and separated in sub-iterations
      * 
      * @param chunk 

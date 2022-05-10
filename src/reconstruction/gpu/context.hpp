@@ -86,7 +86,7 @@ public:
         std::cout << "Ok." << std::endl;
         //Get the real available size for our buffers by filling the VRAM until it's full.
         //This method seems to work correctly on NVIDIA but not on AMD gpus since buffers are cached in RAM
-        //So otherwise, just take a the total memory minus 512Mb (at least 256Mb are reseverved according to OpenCL devs)
+        //So otherwise, just take a the total memory minus 256Mb (at least 256Mb are reseverved according to OpenCL devs)
         switch(_ocl.vendor) {
             case VENDOR_NVIDIA: {
                 _ocl.memorySize = 0;
@@ -116,6 +116,13 @@ public:
         return _ocl;
     }
 
+    cl::CommandQueue createQueue() {
+        cl_int error_queue_creation;
+        auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
+        CHECK(error_queue_creation)
+        return queues;
+    }
+
     /**
      * @brief Flush and finish all pending OpenCL call
      * 
@@ -123,6 +130,15 @@ public:
     void wait() {
         CHECK(_ocl.queue.flush());
         CHECK(_ocl.queue.finish());
+    }
+
+    /**
+     * @brief Flush and finish all pending OpenCL call
+     * 
+     */
+    void wait(cl::CommandQueue &queue) {
+        CHECK(queue.flush());
+        CHECK(queue.finish());
     }
 
     /**
@@ -186,6 +202,15 @@ public:
         }
     }
 
+    template <typename T, 
+          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
+    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, std::vector<T> &storage, bool blocking = false) {
+        if(storage.empty()) return;
+        if(storage.size() > buffer.elements) return;
+        if(sizeof(T) != buffer.bytePerSample) return;
+        CHECK(queue.enqueueWriteBuffer(buffer.handle, blocking, 0, storage.size()*sizeof(T), storage.data()));
+    }
+
     /**
      * @brief Set the content of a buffer to the one contained in an std::vector
      * 
@@ -195,9 +220,22 @@ public:
      */
     template <typename T, 
           typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void setBuffer(const Buffer buffer, const T value) {
+    void setBuffer(const Buffer buffer, const T value, bool blocking = false) {
         if(sizeof(T) != buffer.bytePerSample) return;
-        CHECK(_ocl.queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T)));
+        cl::Event event;
+        if(blocking) {
+            CHECK(_ocl.writeQueue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
+            event.wait();
+        } else {
+            CHECK(_ocl.queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
+        }
+    }
+
+    template <typename T, 
+          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
+    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, const T value) {
+        if(sizeof(T) != buffer.bytePerSample) return;
+        CHECK(queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
     }
 
     /**
@@ -232,6 +270,13 @@ public:
         } else {
             CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, 0, buffer.elements*sizeof(T), storage.data()));
         }
+    }
+
+    template <typename T, 
+          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
+    void getBuffer(cl::CommandQueue &queue, const Buffer buffer, std::vector<T>& storage, const bool blocking = false) {
+        storage.resize(buffer.elements);
+        CHECK(queue.enqueueReadBuffer(buffer.handle, blocking, 0, buffer.elements*sizeof(T), storage.data()));
     }
 
     /**

@@ -87,6 +87,21 @@ namespace dataset {
         }
 
         /**
+         * @brief Get a single layer
+         * 
+         * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
+         * @return std::vector<float> 
+         */
+        std::vector<float> getLayers(int64_t layer_start, int64_t layer_end) {
+            std::vector<float> layers;
+            for(int64_t i = layer_start; i < layer_end; ++i) {
+                auto layer = _dataLoader.getLayer(i);
+                layers.insert(layers.end(), layer.begin(), layer.end());
+            }
+            return layers;
+        }
+
+        /**
          * @brief Save the layer contained in data to a single layer file
          * 
          * @param data of the layer, should be of size width*width
@@ -115,6 +130,16 @@ namespace dataset {
          */
         std::vector<float> getImages(int64_t id) {
             return _dataLoader.getImages(id);
+        }
+
+        /**
+         * @brief get a single image
+         * 
+         * @param id of the image
+         * @return std::vector<float> 
+         */
+        std::vector<float> getImage(int64_t id) {
+            return _dataLoader.getImage(id);
         }
 
         /**

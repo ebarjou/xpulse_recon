@@ -20,7 +20,6 @@ public:
     Kernel(Ocl &ocl, std::string source, const char *name) :
             _ocl(ocl)
     {
-
         cl_int error_program_creation;
         _program = cl::Program{_ocl.context, source, false, &error_program_creation};
         CHECK(error_program_creation)
@@ -74,5 +73,10 @@ public:
     void executeKernel() {
         uint32_t xGlobal = x + (WAVEFRONT_SIZE - x%WAVEFRONT_SIZE);
         CHECK(_ocl.queue.enqueueNDRangeKernel(_kernel, cl::NullRange, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
+    }
+
+    void executeKernel(cl::CommandQueue &queue) {
+        uint32_t xGlobal = x + (WAVEFRONT_SIZE - x%WAVEFRONT_SIZE);
+        CHECK(queue.enqueueNDRangeKernel(_kernel, cl::NullRange, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
     }
 };

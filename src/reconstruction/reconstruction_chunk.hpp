@@ -46,7 +46,7 @@ public:
         }
         
         setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
-        setAngleNumber(prm_g.concurrent_projections, prm_md.size());
+        setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
 
         std::cout << "Processing chunks :" << std::endl;
         for(int c = 0; c < prm_m2.chunks.size(); ++c) {

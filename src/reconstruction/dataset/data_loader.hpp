@@ -51,7 +51,16 @@ public:
         #pragma omp parallel for
         for(int i = 0; i < _tiff_files.size(); ++i) {
             auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-            const auto [min, max] = std::minmax_element(data.begin(), data.end());
+            data.erase(std::remove_if(std::begin(data), std::end(data),
+                       [](const auto& value) { return !std::isnormal(value); }),
+                       std::end(data)
+            );
+            const auto [min, max] = std::minmax_element(data.begin(), data.end(),
+                [] (auto x, auto y) {
+                    return x < y ? true : isnan(x);
+                }
+            );
+
             #pragma omp critical
             {
                 _min_value = std::min(_min_value, *min);
@@ -65,7 +74,7 @@ public:
                 auto file = openWriteTrunc("p", i);
                 for(int64_t j = i; j < int64_t(_tiff_files.size()); j += prm_r.sit) {
                     auto data = loadTIFF(_tiff_files[j], prm_g.dwidth, prm_g.dheight);
-                    std::for_each(data.begin(), data.end(), [this](float& v) { v = (v-_min_value)/(_max_value-_min_value); });
+                    std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?(v-_min_value)/(_max_value-_min_value):(_max_value+_min_value)/2; });
                     if(prm_r.mlog) {
                         std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
                     }
@@ -107,9 +116,12 @@ public:
         std::filesystem::remove_all(_temp_folder);
         #pragma omp parallel for
         for(int i = 0; i < prm_g.vheight; ++i) {
+            try {
             auto data = getLayer(i);
             std::for_each(data.begin(), data.end(), [this](float& v) { v = v*(_max_value-_min_value); });
             saveLayer(&data[0], i);
+            } catch(std::runtime_error e) {
+            }
         }
         std::cout << "Ok." << std::endl;
         
@@ -171,6 +183,18 @@ public:
             }
             return data;
         }
+    }
+
+    /**
+     * @brief Get the Images data
+     * 
+     * @param id index of the image
+     * @return std::vector<float> 
+     */
+    std::vector<float> getImage(int64_t id) {
+        auto image = loadTIFF(_tiff_files[id], prm_g.dwidth, prm_g.dheight);
+        if(prm_r.mlog) std::for_each(image.begin(), image.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
+        return image;
     }
 
     /**

@@ -15,7 +15,6 @@ class GeometryChunk {
     uint64_t _availableMemoryByte, _maxMemoryAllocByte;
     std::vector<float> _layerMinYProj, _layerMaxYProj;
     std::vector<glm::mat4x4>  _projection_matrices_mat4;
-    
 public:
     GeometryChunk(Parameters *parameters, Geometry *geometry, uint64_t availableMemoryByte, uint64_t maxMemoryAllocByte) : 
         _parameters(parameters),
@@ -125,8 +124,8 @@ private:
             { prm_g.orig.x, prm_g.orig.y,  prm_g.orig.z, 1.0f},
             {-prm_g.orig.x, prm_g.orig.y,  prm_g.orig.z, 1.0f}
         };
-        _layerMinYProj.resize(prm_g.dheight);
-        _layerMaxYProj.resize(prm_g.dheight);
+        _layerMinYProj.resize(prm_g.vheight);
+        _layerMaxYProj.resize(prm_g.vheight);
         #pragma omp parallel for schedule(static)
         for(int l = 0; l < prm_g.vheight; ++l) {
             std::vector<float> values(_projection_matrices_mat4.size()*bounds.size()*2);

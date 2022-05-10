@@ -9,7 +9,8 @@
 
 kernel void Forward(global const float* restrict volume, 
                     global fixed32* restrict sumImages,
-                    constant const ProjData* restrict projData,
+                    //constant const ProjData* restrict projData,
+                    global const ProjData* restrict projData,
                     const uint4 size, //Size of the total volume, in voxel
                     const float4 origin, //Origin of the volume, in mm
                     const uint angleNumber,
@@ -27,7 +28,8 @@ kernel void Forward(global const float* restrict volume,
 
     for(uint i = 0, m = 0; m < angleNumber*modulePerAngle; ++m, i = m/modulePerAngle) {
         const ProjData _projData = projData[m];
-        const float2 position2D = min(mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x), (float2)(MAXFLOAT, lineOffsetY.y-1));
+        //const float2 position2D = min(mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x), (float2)(MAXFLOAT, lineOffsetY.y-1));
+        const float2 position2D = mvm_xy_w(_projData.mvp, position3D)-(float2)(0, lineOffsetY.x);
         #ifdef INTERP_ROUND
             const int2 coordinate2D = convert_int2(round(position2D));
             const bool bounds = all( isgreaterequal(convert_float2(coordinate2D), _projData.vp.even) && isless(convert_float2(coordinate2D), _projData.vp.odd) );

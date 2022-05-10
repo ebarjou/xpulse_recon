@@ -54,7 +54,7 @@ public:
         setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
         setVolumeParameters({0, 0, 0}, {prm_g.vwidth, prm_g.vheight, prm_g.vwidth}, {prm_g.vx, prm_g.vx, prm_g.vx});
         setImageOffset({0, prm_g.dheight});
-        setAngleNumber(prm_g.concurrent_projections, prm_md.size());
+        setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
         
         setBuffer(volumeBuffer, 1.0f);
         setBuffer(sumImagesBuffer, FIXED_FRAC_ONE);

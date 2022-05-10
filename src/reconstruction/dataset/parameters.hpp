@@ -35,17 +35,16 @@ void initializeParameters(Parameters *_parameters) {
     if(prm_m2.overlap_fct > 1.0f ) prm_m2.overlap_fct = 1.0f;
     if(prm_m2.overlap_fct < 0.01f ) prm_m2.overlap_fct = 0.01f;
     if(prm_g.heli_step < 1.0f) prm_g.heli_step = 1.0f;
-    
-    prm_g.vx = (prm_d.px*(prm_g.so/prm_g.sd));
+
     prm_d.rx *= prm_d.px;
-    for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
+    /*for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
         prm_d.sx *= prm_d.px;
         prm_d.sy *= prm_d.px;
         
         if((!prm_md[i].start_x.assigned || !prm_md[i].end_x.assigned || !prm_md[i].start_y.assigned || !prm_md[i].end_y.assigned) && prm_md.size() > 1) {
             std::cout << "Warning : No viewport specified with more than one module." << std::endl;
         }
-    }
+    }*/
 }
 
 /**
@@ -75,9 +74,9 @@ Parameters loadParameters(std::string file_or_content) {
             throw std::exception("Error while parsing the parameter string");
         }
     }
-    if(parameters.detector.modules.size() == 0) {
+    /*if(parameters.detector.modules.size() == 0) {
         throw std::exception("No detector module given");
-    }
+    }*/
 
     initializeParameters(&parameters);
 

@@ -87,6 +87,21 @@ namespace dataset {
         }
 
         /**
+         * @brief Get a single layer
+         * 
+         * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
+         * @return std::vector<float> 
+         */
+        std::vector<float> getLayers(int64_t layer_start, int64_t layer_end) {
+            std::vector<float> layers;
+            for(int64_t i = layer_start; i < layer_end; ++i) {
+                auto layer = _dataLoader.getLayer(i);
+                layers.insert(layers.end(), layer.begin(), layer.end());
+            }
+            return layers;
+        }
+
+        /**
          * @brief Save the layer contained in data to a single layer file
          * 
          * @param data of the layer, should be of size width*width
@@ -115,6 +130,16 @@ namespace dataset {
          */
         std::vector<float> getImages(int64_t id) {
             return _dataLoader.getImages(id);
+        }
+
+        /**
+         * @brief get a single image
+         * 
+         * @param id of the image
+         * @return std::vector<float> 
+         */
+        std::vector<float> getImage(int64_t id) {
+            return _dataLoader.getImage(id);
         }
 
         /**
@@ -180,12 +205,12 @@ namespace dataset {
             prm_g.concurrent_projections = int64_t(std::floor( float(prm_g.projections) / float(prm_r.sit) ));
             prm_g.dwidth = _width;
             prm_g.dheight = _height;
-            for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
+            /*for(int64_t i = 0; i < int64_t(prm_md.size()); ++i) {
                 if(!(prm_md[i].start_x.assigned)) prm_md[i].start_x = 0;
                 if(!(prm_md[i].end_x.assigned)) prm_md[i].end_x = prm_g.dwidth;
                 if(!(prm_md[i].start_y.assigned)) prm_md[i].start_y = 0;
                 if(!(prm_md[i].end_y.assigned)) prm_md[i].end_y = prm_g.dheight;
-            }
+            }*/
             return tiff_files;
         }
 

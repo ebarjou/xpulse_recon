@@ -19,7 +19,7 @@ public:
         _dataset.initialize();
 
         float wl = 1.2398e-6f / prm_ipr.energy_kev; //kev to mm
-        float k = (2.0f*M_PI/wl);
+        float k = float(2.0f*M_PI/wl);
         float mag = prm_g.so / prm_g.sd;
         float z = (prm_g.sd - prm_g.so)/mag;
         float px = prm_d.px/mag;
@@ -91,7 +91,7 @@ public:
         setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
         setVolumeParameters({0, 0, 0}, {prm_g.vwidth, prm_g.vheight, prm_g.vwidth}, {prm_g.vx, prm_g.vx, prm_g.vx});
         setImageOffset({0, prm_g.dheight});
-        setAngleNumber(prm_g.concurrent_projections, prm_md.size());
+        setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
         
         setBuffer(volumeBuffer_abs, 1.0f);
         setBuffer(volumeBuffer_arg, 1.0f);
@@ -202,8 +202,9 @@ public:
 
     void phase_retrieval(std::vector<float> &guess_abs, std::vector<float> &guess_arg, std::vector<float> &images) {
         using namespace std::complex_literals;
+        int64_t end = int64_t(images.size());
         #pragma omp parallel for
-        for(int64_t j = 0; j < images.size(); j+=(prm_g.dwidth*prm_g.dheight)) {
+        for(int64_t j = 0; j < end; j+=(prm_g.dwidth*prm_g.dheight)) {
             std::vector<complex> guess(prm_g.dwidth*prm_g.dheight);
             for(int i = 0; i < guess.size(); ++i) {
                 guess[i] = std::exp(-guess_abs[j+i])*std::exp(1if*guess_arg[j+i]);

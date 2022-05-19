@@ -25,7 +25,7 @@ public:
             throw std::runtime_error("Not enough GPU memory");
         }
 
-        _dataset.initialize();
+        _dataset.initialize(false);
 
         width = prm_g.dwidth;
         height = prm_g.dheight;
@@ -73,7 +73,7 @@ public:
                 southwell(projections, sit, int32_t(prm_g.concurrent_projections));
                 images.push_back(projections);
             } else {
-                images.push_back(_dataset.getImages(sit));
+                images.push_back(_dataset.getSitImages(sit));
             }
         }
         auto projData = prm_g.projection_matrices;

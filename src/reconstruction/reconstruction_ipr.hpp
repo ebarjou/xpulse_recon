@@ -16,7 +16,7 @@ public:
             throw std::runtime_error("Not enough GPU memory");
         }
 
-        _dataset.initialize();
+        _dataset.initialize(false);
 
         float wl = 1.2398e-6f / prm_ipr.energy_kev; //kev to mm
         float k = float(2.0f*M_PI/wl);
@@ -57,7 +57,7 @@ public:
         std::vector<std::vector<float>> images_arg(prm_r.sit);
 
         for(int sit = 0; sit < prm_r.sit; ++sit) {
-            images[sit] = _dataset.getImages(sit);
+            images[sit] = _dataset.getSitImages(sit);
             images_abs[sit].resize(images[sit].size(), 1.0f);
             images_arg[sit].resize(images[sit].size(), 0.0f);
             phase_retrieval(images_abs[sit], images_arg[sit], images[sit]);

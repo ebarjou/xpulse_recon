@@ -331,7 +331,7 @@ private:
         }
         //Buffer creation seemes to always return CL_SUCCESS since allocation is lazy, enqueueFillBuffer force the allocation and repport errors correctly
         uint32_t value = hostPtr ? ((uint32_t*)hostPtr)[0] : 0;
-        if(_ocl.queue.enqueueFillBuffer(buffer, value, 0, 1*sizeof(uint32_t)) != CL_SUCCESS) {
+        if(_ocl.queue.enqueueFillBuffer(buffer, value, 0, 1*sizeof(uint8_t)) != CL_SUCCESS) {
             throw std::bad_alloc();
         }
         return buffer;

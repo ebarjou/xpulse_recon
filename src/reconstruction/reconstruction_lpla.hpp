@@ -14,7 +14,7 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize();
+        _dataset.initialize(false);
     }
 
     uint64_t requieredGPUMemory() {
@@ -54,7 +54,7 @@ public:
         setBuffer(sumImagesBuffer, FIXED_FRAC_ONE);
         
         auto asyncImageLoad = std::async(std::launch::async, [this]{
-            return this->_dataset.getImages(0);
+            return this->_dataset.getSitImages(0);
         });
         
         float weight = prm_r.weight;
@@ -74,7 +74,7 @@ public:
                         auto images = asyncImageLoad.get();
                         if(mit < prm_r.it-1 || sit < prm_r.sit-1) {
                             asyncImageLoad = std::async(std::launch::async, [this, sit]{ 
-                                return this->_dataset.getImages((sit+1)%prm_r.sit);
+                                return this->_dataset.getSitImages((sit+1)%prm_r.sit);
                             });
                         }
                         setBuffer(imagesBuffer, images);
@@ -86,7 +86,7 @@ public:
                         #pragma omp for schedule(dynamic)
                         for(int l = 0; l < prm_g.vheight; ++l) {
                             const int tid = omp_get_thread_num();
-                            std::vector<float> layer = _dataset.getLayers(l);
+                            std::vector<float> layer = _dataset.getLayer(l);
 
                             #pragma omp critical (write)
                             {
@@ -115,7 +115,7 @@ public:
                         std::vector<float> layer;
 
                         if(sit > 0 || mit > 0) {
-                            layer = _dataset.getLayers(l);
+                            layer = _dataset.getLayer(l);
                             #pragma omp critical (write)
                             {
                                 setBuffer(volumeBuffer[tid], layer, true);

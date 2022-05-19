@@ -21,7 +21,7 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize();
+        _dataset.initialize(true);
     }
 
     uint64_t requieredGPUMemory() {

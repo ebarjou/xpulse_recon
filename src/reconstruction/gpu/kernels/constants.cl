@@ -14,7 +14,7 @@ typedef uint fixed32;
 #endif
 
 
-#define FIXED_FRAC_BITS 20
+#define FIXED_FRAC_BITS 22
 #define FIXED_FRAC_MAX = (1 << (32-FIXED_FRAC_BITS))
 #define FIXED_FRAC_ONE (1 << FIXED_FRAC_BITS)
 #define FIXED_FRAC_ZERO ((fixed32)0)

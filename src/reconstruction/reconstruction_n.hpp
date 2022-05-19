@@ -12,7 +12,7 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize();
+        _dataset.initialize(false);
     }
 
     uint64_t requieredGPUMemory() {
@@ -28,7 +28,7 @@ public:
         std::cout << "Loading data..." << std::flush;
         std::vector<std::vector<float>> images;
         for(int sit = 0; sit < prm_r.sit; ++sit) {
-            images.push_back(_dataset.getImages(sit));
+            images.push_back(_dataset.getSitImages(sit));
         }
         auto projData = prm_g.projection_matrices;
         std::cout << "Ok" << std::endl;

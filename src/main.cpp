@@ -33,6 +33,7 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <omp.h>
 #include <json_struct.h>
 #include <pocketfft_hdronly.h>
+#include <zstd.h>
 
 #include <iostream>
 #include <vector>
@@ -130,5 +131,5 @@ int main(int argc, char* argv[]) {
     //Clear reconstruction data
     delete recon;
 
-    return RETURN_CODE_OK;
+    exit(RETURN_CODE_OK);
 }

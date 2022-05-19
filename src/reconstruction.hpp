@@ -111,7 +111,7 @@ namespace reconstruction {
                         #pragma omp for schedule(dynamic)
                         for(int l = 0; l < prm_g.vheight; ++l) {
                             const int tid = omp_get_thread_num();
-                            std::vector<float> layer = _dataset.getLayers(l);
+                            std::vector<float> layer = _dataset.getLayer(l);
                             std::for_each(layer.begin(), layer.end(), [samples](float& v) { v /= samples;});
                             for(int j = 0; j < prm_g.vwidth; ++j) {
                                 for(int i = 0; i < prm_g.vwidth; ++i) {
@@ -145,7 +145,7 @@ namespace reconstruction {
                         for(int i = 0; i < projections.size(); ++i) {
                             processed_projections[i] = FIXED_TO_FLOAT(projections[i]);
                         }
-                        _dataset.saveImages(processed_projections, sit, prm_g.projections, prm_r.sit);
+                        _dataset.saveSitImages(processed_projections, sit);
                     }
                 }
             }

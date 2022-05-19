@@ -13,7 +13,8 @@ std::string kernel_hbackward_source = std::string(
 );
 
 class ReconstructionLPLH : public reconstruction::Reconstruction {
-    const uint32_t LAYER_THREADS = 6;
+    const uint32_t CPU_THREADS = 12;
+    const uint32_t VOLUME_BUFFERS = 4;
     reconstruction::dataset::MvpPerLayer mvpPerLayer;
 
 public:
@@ -22,12 +23,12 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize();  
+        _dataset.initialize(false);  
     }
 
     uint64_t requieredGPUMemory() {
-        int64_t indexSize = mvpPerLayer.maxAngles*LAYER_THREADS*sizeof(uint16_t);
-        int64_t volumeSize = prm_g.vwidth*prm_g.vwidth*LAYER_THREADS*sizeof(float);
+        int64_t indexSize = mvpPerLayer.maxAngles*CPU_THREADS*sizeof(uint16_t)*2;
+        int64_t volumeSize = prm_g.vwidth*prm_g.vwidth*VOLUME_BUFFERS*sizeof(float);
         int64_t mvpSize = prm_g.projection_matrices[0].size()*sizeof(float);
         int64_t imageSize = prm_g.dheight*prm_g.dwidth*(prm_g.concurrent_projections+1)*sizeof(float);
         
@@ -42,23 +43,31 @@ public:
         float weight = prm_r.weight;
         auto projDataBuffer = createBuffer<float>(mvpPerLayer.mvp, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
         auto sumImagesBuffer = createBuffer<float>(prm_g.dheight*prm_g.dwidth*(prm_g.concurrent_projections+1), reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW);
+        
+        struct layers{std::mutex m; reconstruction::gpu::Buffer b;};
+        std::vector<layers> volumeBuffers(VOLUME_BUFFERS);
+        for(int i = 0; i < VOLUME_BUFFERS; ++i) {
+            volumeBuffers[i].b = createBuffer<float>(prm_g.vwidth * prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW, WAVEFRONT_SIZE);
+        }
 
-        omp_set_nested(1);
-        #pragma omp parallel num_threads(LAYER_THREADS)
+        omp_set_nested(0);
+        #pragma omp parallel num_threads(CPU_THREADS)
         {
+            int tid = omp_get_thread_num();
+            int vid = tid%VOLUME_BUFFERS;
+
             #pragma omp single
-            std::cout << "[LAYER_THREADS] : " << omp_get_num_threads() << std::endl;
+            std::cout << "[CPU_THREADS] : " << omp_get_num_threads() << std::endl;
 
             std::vector<float> volume(prm_g.vwidth * prm_g.vwidth);
             
             auto queue = createQueue();
 
-            auto volumeBuffer = createBuffer<float>(prm_g.vwidth * prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW, WAVEFRONT_SIZE);
             auto indexBuffer = createBuffer<uint16_t>(mvpPerLayer.maxAngles, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
             auto imgIndexBuffer = createBuffer<uint16_t>(mvpPerLayer.maxAngles, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
             
             reconstruction::gpu::Kernel backwardh(getOcl(), kernel_hbackward_source, "BackwardH");
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLUME_BUFFER, volumeBuffer);
+            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLUME_BUFFER, volumeBuffers[vid].b);
             backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
             backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_INDEX_BUFFER, indexBuffer);
             backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_IMGINDEX_BUFFER, imgIndexBuffer);
@@ -71,7 +80,7 @@ public:
             setOrigin(backwardh, reconstruction::gpu::INDEX_HBACKWARD_ORIGIN_F4, prm_g.orig, {prm_g.vx, prm_g.vx, prm_g.vx});
 
             reconstruction::gpu::Kernel forwardh(getOcl(), kernel_hforward_source, "ForwardH");
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffer);
+            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffers[vid].b);
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_INDEX_BUFFER, indexBuffer);
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_IMGINDEX_BUFFER, imgIndexBuffer);
@@ -99,39 +108,30 @@ public:
                     if(sit > 0 || mit > 0) {
                         #pragma omp for schedule(dynamic)
                         for(int l = 0; l < prm_g.vheight; ++l) {
-                            volume = _dataset.getLayers(l);
-                            
-                            setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l], true); 
-                            setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l], true); 
-                            setBuffer(queue, volumeBuffer, volume, true);
+                            volume = _dataset.getLayer(l);
 
+                            setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
+                            setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]); 
+                            
+                            volumeBuffers[vid].m.lock();
+
+                            setBuffer(queue, volumeBuffers[vid].b, volume, true);
                             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_ANGLES_U, uint32_t(mvpPerLayer.mvp_indexes[sit][l].size()));
                             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_YOFFSET_U, uint32_t(l));
-                            wait(queue);
-                            forwardh.executeKernel(queue);         
+                            forwardh.executeKernel(queue);
+                            
+                            queue.flush();
+                            //Equivalent to finish, but not busy
+                            setBuffer(queue, indexBuffer, std::vector<uint16_t>(2), true);
+
+                            volumeBuffers[vid].m.unlock();   
                         }
                     }
+                    wait(queue);
 
                     //Error
-                    /*#pragma omp single
-                    {
-                        if(sit > 0 || mit > 0) {
-                            getBuffer(queue, sumImagesBuffer, sumImages, true);
-                        }
-                        
-                        #pragma omp parallel for
-                        for(int64_t i = 0; i < sumImageSize; ++i) {
-                            if(sit > 0 || mit > 0) {
-                                float value = FIXED_TO_FLOAT(src[i]);
-                                dst[i] = std::log(std::max(images[i]/std::max(value,EPSILON), EPSILON))*weight;
-                            } else {
-                                dst[i] = std::log(std::max(images[i], EPSILON));
-                            }
-                        }
-                        setBuffer(queue, sumImagesBuffer, sumImages, true);   
-                    }*/
                     if(sit > 0 || mit > 0) {
-                        #pragma omp parallel for schedule(dynamic)
+                        #pragma omp for schedule(dynamic)
                         for(int j = sit; j < prm_g.concurrent_projections; j += prm_r.sit) {
                             std::vector<float> image = _dataset.getImage(j);
                             int id = (j-sit)/prm_r.sit;
@@ -147,7 +147,7 @@ public:
                             }
                         }
                     } else {
-                        #pragma omp parallel for schedule(dynamic)
+                        #pragma omp for schedule(dynamic)
                         for(int j = sit; j < prm_g.concurrent_projections; j += prm_r.sit) {
                             std::vector<float> image = _dataset.getImage(j);
                             int id = (j-sit)/prm_r.sit;
@@ -167,23 +167,28 @@ public:
                     
                     //Backward
                     #pragma omp for schedule(dynamic)
-                    for(int l = 0; l < prm_g.vheight; ++l) {
+                    for(int l = 0; l < prm_g.vheight; ++l) {                        
                         if(sit > 0 || mit > 0) {
-                            volume = _dataset.getLayers(l);
-                            setBuffer(queue, volumeBuffer, volume, true);
+                            volume = _dataset.getLayer(l);
+                            volumeBuffers[vid].m.lock();
+                            setBuffer(queue, volumeBuffers[vid].b, volume);
                         } else {
-                            setBuffer(queue, volumeBuffer, 1.0f);
+                            volumeBuffers[vid].m.lock();
+                            setBuffer(queue, volumeBuffers[vid].b, 1.0f/prm_g.concurrent_projections);
                         }
-                        setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l], true); 
-                        setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l], true); 
 
+                        setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
+                        setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]); 
                         backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_ANGLES_U, uint32_t(mvpPerLayer.mvp_indexes[sit][l].size()));
                         backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_YOFFSET_U, uint32_t(l));
                         backwardh.executeKernel(queue);
-                        wait(queue);
+                        queue.flush();
 
-                        getBuffer(queue, volumeBuffer, volume, true);
-                        _dataset.saveLayer(volume, l);
+                        getBuffer(queue, volumeBuffers[vid].b, volume, true);
+                        volumeBuffers[vid].m.unlock();
+
+                        _dataset.saveLayer(volume, l, (sit==prm_r.sit-1) && (mit == prm_r.it-1));
+                        //_dataset.saveLayer(volume, l, true);
                     }
                 }
 
@@ -193,7 +198,6 @@ public:
         }
         wait();
         std::cout << "Executing reconstruction..." << " Done." << std::endl;
-        omp_set_nested(0);
     }
     
 private:

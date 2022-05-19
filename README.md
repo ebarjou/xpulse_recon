@@ -50,7 +50,7 @@ Here is a minimal example of a parameter file :
     "recon" : {
         "input" : "./", //Path to the folder containing the input TIFF images
         "output" : "./recon/", //Path to the folder that will contain the reconstruction layers, as a stack of TIFF
-        "method" : "naive", //Type of memory managment (naive|method_1a|method1b|method2)
+        "method" : "naive", //Type of memory managment (naive|method_1a|method_1b|method_1c|method_2)
         "it" : 1, //Number of main iterations
         "sit" : 10, //Number of sub-iterations
         "mlog" : true, //If true, apply '-log' to each images
@@ -86,5 +86,6 @@ This repository depends on four sub-modules :
 * [OpenCL-SDK](https://github.com/KhronosGroup/OpenCL-SDK) : OpenCL Binding
 * [TinyTIFF](https://github.com/jkriege2/TinyTIFF) : TIFF image reading and writing
 * [PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft) : FFT for experimental Iterative FSP reconstruction
-* 
+* [ZSTD](https://github.com/facebook/zstd) : Fast compression algorithm to reduce HDD utilization during recon
+
 The licenses can be found in [EXTERNAL_LICENSES.md](https://github.com/ebarjou/xpulse_recon/blob/master/EXTERNAL_LICENSES.md)

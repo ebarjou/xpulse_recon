@@ -43,10 +43,8 @@ namespace dataset {
          * @brief Load all data and create temporary files if needed
          * 
          */
-        void initialize() {
-            if(prm_r.images_preproc) {
-                _dataLoader.initializeTempImages();
-            }
+        void initialize(bool chunk) {
+            _dataLoader.initializeTempImages(chunk);
         }
 
         /**
@@ -82,7 +80,7 @@ namespace dataset {
          * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
          * @return std::vector<float> 
          */
-        std::vector<float> getLayers(int64_t layer) {
+        std::vector<float> getLayer(int64_t layer) {
             return _dataLoader.getLayer(layer);
         }
 
@@ -92,11 +90,12 @@ namespace dataset {
          * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
          * @return std::vector<float> 
          */
-        std::vector<float> getLayers(int64_t layer_start, int64_t layer_end) {
-            std::vector<float> layers;
-            for(int64_t i = layer_start; i < layer_end; ++i) {
+        std::vector<float> getLayers(int64_t index_start, int64_t index_end, bool MT = false) {
+            std::vector<float> layers((index_end-index_start)*prm_g.vwidth*prm_g.vwidth);
+            #pragma omp parallel for if(MT)
+            for(int64_t i = index_start; i < index_end; ++i) {
                 auto layer = _dataLoader.getLayer(i);
-                layers.insert(layers.end(), layer.begin(), layer.end());
+                std::copy(layer.begin(), layer.end(), layers.begin()+(i-index_start)*prm_g.vwidth*prm_g.vwidth);
             }
             return layers;
         }
@@ -107,8 +106,8 @@ namespace dataset {
          * @param data of the layer, should be of size width*width
          * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
          */
-        void saveLayer(const std::vector<float> &data, int64_t layer) {
-            _dataLoader.saveLayer(&data[0], layer);
+        void saveLayer(std::vector<float> &data, int64_t layer, bool finalize = false) {
+            _dataLoader.saveLayer(data.data(), layer, finalize);
         }
 
         /**
@@ -118,18 +117,26 @@ namespace dataset {
          * @param start first layer index
          * @param end last layer index, excluded
          */
-        void saveLayers(const std::vector<float> &data, int64_t start, int64_t end) {
-            _dataLoader.saveLayers(&data[0], start, end);
+        void saveLayers(std::vector<float> &data, int64_t index_start, int64_t index_end, bool MT = false) {
+            #pragma omp parallel for if(MT)
+            for(int64_t i = index_start; i < index_end; ++i) {
+                _dataLoader.saveLayer(data.data()+(i-index_start)*prm_g.vwidth*prm_g.vwidth, i);
+            }
         }
 
         /**
-         * @brief get a single image
+         * @brief get all images of a given SIT
          * 
-         * @param id of the image
+         * @param sit index of the sub-iteration
          * @return std::vector<float> 
          */
-        std::vector<float> getImages(int64_t id) {
-            return _dataLoader.getImages(id);
+        std::vector<float> getSitImages(int64_t sit, bool MT = false) {
+            std::vector<float> output(((prm_g.projections-sit)/prm_r.sit)*prm_g.dwidth*prm_g.dheight);
+            #pragma omp parallel for if(MT)
+            for(int i = sit; i < prm_g.projections; i += prm_r.sit) {
+                auto image = _dataLoader.getImage(i);
+                std::copy(image.begin(), image.end(), output.begin()+((i-sit)/prm_r.sit)*prm_g.dwidth*prm_g.dheight);
+            }
         }
 
         /**
@@ -149,7 +156,8 @@ namespace dataset {
          * @return std::vector<float> 
          */
         std::vector<float> getImage(std::string path) {
-            return _dataLoader.getImage(path);
+            exit(-10);
+            return _dataLoader.getImage(0);
         }
 
         /**
@@ -158,8 +166,16 @@ namespace dataset {
          * @param chunk 
          * @return std::vector<std::vector<float>> a vector for each sub-iterations containing the cropped images
          */
-        std::vector<std::vector<float>> getImagesCropped(int64_t chunk) {
-            return _dataLoader.getImagesCropped(chunk);
+        std::vector<std::vector<float>> getImagesCropped(int64_t chunk, bool MT = false) {
+            std::vector<std::vector<float>> output(prm_r.sit);
+            for(int sit = 0; sit < prm_r.sit; ++sit) {
+                output[sit] = std::vector<float>(((prm_g.projections-sit)/prm_r.sit)*prm_g.dwidth*prm_m2.chunks[sit].iSize);
+                #pragma omp parallel for if(MT)
+                for(int i = sit; i < prm_g.projections; i += prm_r.sit) {
+                    auto image = _dataLoader.getImage(chunk*prm_g.projections+i);
+                    std::copy(image.begin(), image.end(), output[sit].begin()+((i-sit)/prm_r.sit)*prm_g.dwidth*prm_m2.chunks[sit].iSize);
+                }
+            }
         }
 
         /**
@@ -170,10 +186,11 @@ namespace dataset {
          * @param end offset, im images from the vector
          * @param step in image
          */
-        void saveImages(const std::vector<float> &data, int64_t start, int64_t end, int64_t step = 1) {
-            for(int64_t l = start; l < end; l += step) {
+        void saveSitImages(const std::vector<float> &data, int64_t sit) {
+            /*for(int64_t l = start; l < end; l += step) {
                 _dataLoader.saveProjImage(&data[((l-start)/step)*prm_g.dwidth*prm_g.dheight], l);
-            }
+            }*/
+            exit(-10);
         }
 
         /**

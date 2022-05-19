@@ -12,7 +12,7 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize();
+        _dataset.initialize(false);
     }
 
     uint64_t requieredGPUMemory() {
@@ -57,11 +57,11 @@ public:
             for(int sit = 0; sit < prm_r.sit; ++sit) {
                 setProjDataBuffer(projDataBuffer[sit]);
                 setOrigin(prm_g.orig, {prm_g.vx, prm_g.vx, prm_g.vx});
-                auto images = _dataset.getImages(sit);
+                auto images = _dataset.getSitImages(sit);
                 setBuffer(imagesBuffer, images);
                 if(sit > 0 || mit > 0) {
                     for(int l = 0; l < prm_g.vheight; ++l) {
-                        std::vector<float> layer = _dataset.getLayers(l);
+                        std::vector<float> layer = _dataset.getLayer(l);
                         setBuffer(volumeBuffer, layer);
                         setVolumeParameters({0, l, 0}, {prm_g.vwidth, l+1, prm_g.vwidth}, {prm_g.vx, prm_g.vx, prm_g.vx});
                         forward();
@@ -73,7 +73,7 @@ public:
                 for(int l = 0; l < prm_g.vheight; ++l) {
                     std::vector<float> layer;
                     if(sit > 0 || mit > 0) {
-                        layer = _dataset.getLayers(l);
+                        layer = _dataset.getLayer(l);
                         setBuffer(volumeBuffer, layer);
                     } else {
                         setBuffer(volumeBuffer, 1.0f);

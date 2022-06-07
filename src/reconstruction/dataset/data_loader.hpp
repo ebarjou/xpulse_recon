@@ -52,30 +52,34 @@ public:
         _max_per_layer.resize(prm_g.vheight);
         #pragma omp parallel
         {
-            #pragma omp for schedule(dynamic)
-            for(int i = 0; i < _tiff_files.size(); ++i) {
-                auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-                data.erase(std::remove_if(std::begin(data), std::end(data),
-                        [](const auto& value) { return !std::isnormal(value); }),
-                        std::end(data)
-                );
-                const auto [min, max] = std::minmax_element(data.begin(), data.end(),
-                    [] (auto x, auto y) {
-                        return x < y ? true : isnan(x);
+            if(prm_r.normalize) {
+                #pragma omp for schedule(dynamic)
+                for(int i = 0; i < _tiff_files.size(); ++i) {
+                    auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
+                    data.erase(std::remove_if(std::begin(data), std::end(data),
+                            [](const auto& value) { return !std::isnormal(value); }),
+                            std::end(data)
+                    );
+                    const auto [min, max] = std::minmax_element(data.begin(), data.end(),
+                        [] (auto x, auto y) {
+                            return x < y ? true : isnan(x);
+                        }
+                    );
+                    #pragma omp critical
+                    {
+                        _min_value = std::min(_min_value, *min);
+                        _max_value = std::max(_max_value, *max);
                     }
-                );
-                #pragma omp critical
-                {
-                    _min_value = std::min(_min_value, *min);
-                    _max_value = std::max(_max_value, *max);
                 }
             }
             #pragma omp for schedule(dynamic)
             for(int i = 0; i < prm_g.projections; ++i) {
                 //Read
                 auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-                //Rescale
-                std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?(v-_min_value)/(_max_value-_min_value):(_max_value+_min_value)/2; });
+                //Normalize
+                if(prm_r.normalize) {
+                    std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?(v-_min_value)/(_max_value-_min_value):(_max_value+_min_value)/2; });
+                }
                 //Log
                 if(prm_r.mlog) {
                     std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
@@ -113,7 +117,7 @@ public:
      */
     std::vector<float> getLayer(int64_t layer) {
         //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);   
-        return loadZSTD16(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);   
+        return loadZSTD(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);   
     }
 
     /**
@@ -124,14 +128,16 @@ public:
      */
     void saveLayer(float* data, int64_t layer, bool finalize = false) {
         if(finalize) {
-            for(int i = 0; i < prm_g.vwidth*prm_g.vwidth; ++i) {
-                data[i] = data[i]*(_max_value-_min_value);
+            if(prm_r.normalize) {
+                for(int i = 0; i < prm_g.vwidth*prm_g.vwidth; ++i) {
+                    data[i] = data[i]*(_max_value-_min_value);
+                }
             }
             saveTIFF(getOutputFilePath("layer", layer, "tif"), data, prm_g.vwidth, prm_g.vwidth);
             std::filesystem::remove(getOutputFilePath("layer", layer, "zstd"));
         } else {
             //saveZFP(getOutputFilePath("layer", layer, "zfp"), data, prm_g.vwidth, prm_g.vwidth);
-            saveZSTD16(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
+            saveZSTD(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
         } 
     }
 
@@ -153,6 +159,10 @@ public:
      */
     std::vector<float> getImage(std::string path) {
         return loadTIFF(path, -1, -1);
+    }
+
+    void saveImage(const float *data, int width, int height, int id) {
+        saveTIFF(getTempFilePath(_proj_folder, "tmp", id, "tif"), data, width, height);
     }
 
 private:
@@ -246,21 +256,33 @@ private:
     void saveZSTD16(std::string filename, const float *image, int64_t width, int64_t height) {
         std::vector<uint16_t> input(width*height);
         std::vector<char> output(width*height*sizeof(uint16_t));
+        float vmin = 1<<32, vmax = -vmin;
         for(int i = 0; i < width*height; ++i) {
-            input[i] = uint16_t(std::min(1.0f,image[i])*65535.0f);
+            vmin = std::min(image[i], vmin);
+            vmax = std::max(image[i], vmax);
+        }
+        for(int i = 0; i < width*height; ++i) {
+            input[i] = uint16_t(std::floor(((image[i]-vmin)/(vmax-vmin))*65535.0f));
         }
         size_t const output_size = ZSTD_compress(output.data(), output.size(), input.data(), input.size()*sizeof(uint16_t), zstd_compression_level);
         
         auto file = std::ofstream(filename, std::ios::binary);
+        file.write((char*)(&vmin), sizeof(float));
+        file.write((char*)(&vmax), sizeof(float));
         file.write(output.data(), output_size);
         file.close();
     }
 
     std::vector<float> loadZSTD16(std::string filename, int64_t width, int64_t height) {
         auto file = std::ifstream(filename, std::ios::binary);
+
+        float minmax[2];
+        file.read((char*)&minmax, sizeof(float)*2);
+
         file.seekg(0, std::ios::end);
-        size_t filesize=file.tellg();
-        file.seekg(0, std::ios::beg);
+        size_t filesize = size_t(file.tellg()) - sizeof(float)*2;
+
+        file.seekg(sizeof(float)*2, std::ios::beg);
 
         std::vector<char> compressed(filesize);
         std::vector<uint16_t> uncompressed(width*height);
@@ -272,7 +294,7 @@ private:
         size_t const dSize = ZSTD_decompress(uncompressed.data(), uncompressed.size()*sizeof(uint16_t), compressed.data(), filesize);
 
         for(int i = 0; i < width*height; ++i) {
-            output[i] = uncompressed[i]/65535.0f;
+            output[i] = minmax[0]+(uncompressed[i]/65535.0f)*(minmax[1]-minmax[0]);
         }
         return output;
     }

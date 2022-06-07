@@ -18,8 +18,8 @@ typedef uint fixed32;
 #define FIXED_FRAC_MAX = (1 << (32-FIXED_FRAC_BITS))
 #define FIXED_FRAC_ONE (1 << FIXED_FRAC_BITS)
 #define FIXED_FRAC_ZERO ((fixed32)0)
-#define FIXED_TO_FLOAT(x) ((float)(x) / FIXED_FRAC_ONE)
-#define FLOAT_TO_FIXED(x) ((fixed32)round((x) * FIXED_FRAC_ONE))
+#define FIXED_TO_FLOAT(x) (((float)(x)) / FIXED_FRAC_ONE)
+#define FLOAT_TO_FIXED(x) ((fixed32)((x) * FIXED_FRAC_ONE))
 #define EPSILON FIXED_TO_FLOAT(1)
 
 typedef struct {

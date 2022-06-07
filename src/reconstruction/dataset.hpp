@@ -193,6 +193,10 @@ namespace dataset {
             exit(-10);
         }
 
+        void saveImage(const std::vector<float> &data, int width, int height, int id) {
+            _dataLoader.saveImage(data.data(), width, height, id);
+        }
+
         /**
          * @brief Get the Geometry object
          * 

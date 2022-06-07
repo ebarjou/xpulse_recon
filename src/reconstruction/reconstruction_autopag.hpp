@@ -12,13 +12,13 @@ std::string kernel_hbackward_source = std::string(
     #include "reconstruction/gpu/kernels/headers/KernelBackwardH.hpp"
 );
 
-class ReconstructionLPLH : public reconstruction::Reconstruction {
+class ReconstructionAutoPag : public reconstruction::Reconstruction {
     const uint32_t CPU_THREADS = 12;
     const uint32_t VOLUME_BUFFERS = 4;
     reconstruction::dataset::MvpPerLayer mvpPerLayer;
 
 public:
-    ReconstructionLPLH(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), mvpPerLayer(_dataset.getGeometry()->getMvpPerLayer())
+    ReconstructionAutoPag(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), mvpPerLayer(_dataset.getGeometry()->getMvpPerLayer())
     {
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
@@ -129,10 +129,12 @@ public:
                     }
                     wait(queue);
 
+                    //
+
                     //Error
                     if(sit > 0 || mit > 0) {
                         #pragma omp for schedule(dynamic)
-                        for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
+                        for(int j = sit; j < prm_g.concurrent_projections; j += prm_r.sit) {
                             std::vector<float> image = _dataset.getImage(j);
                             int id = (j-sit)/prm_r.sit;
 
@@ -148,7 +150,7 @@ public:
                         }
                     } else {
                         #pragma omp for schedule(dynamic)
-                        for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
+                        for(int j = sit; j < prm_g.concurrent_projections; j += prm_r.sit) {
                             std::vector<float> image = _dataset.getImage(j);
                             int id = (j-sit)/prm_r.sit;
 
@@ -164,7 +166,7 @@ public:
 
                     #pragma omp single
                     setBuffer(queue, sumImagesBuffer, sumImages, true);
-
+                    
                     //Backward
                     #pragma omp for schedule(dynamic)
                     for(int l = 0; l < prm_g.vheight; ++l) {                        
@@ -174,7 +176,7 @@ public:
                             setBuffer(queue, volumeBuffers[vid].b, volume);
                         } else {
                             volumeBuffers[vid].m.lock();
-                            setBuffer(queue, volumeBuffers[vid].b, 1.0f);
+                            setBuffer(queue, volumeBuffers[vid].b, 1.0f/prm_g.concurrent_projections);
                         }
 
                         setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
@@ -187,7 +189,7 @@ public:
                         getBuffer(queue, volumeBuffers[vid].b, volume, true);
                         volumeBuffers[vid].m.unlock();
 
-                        _dataset.saveLayer(volume, l, ((sit==prm_r.sit-1) && (mit == prm_r.it-1)));
+                        _dataset.saveLayer(volume, l, (sit==prm_r.sit-1) && (mit == prm_r.it-1));
                     }
                 }
 

@@ -14,9 +14,9 @@ struct ReconstructionData {
     int64_t it = 1, sit = 10;
     bool mlog = true;
     float weight = 1.0f, weight_factor = 0.9f;
-    bool images_preproc = false;
+    bool normalize = false;
 
-    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, images_preproc);
+    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize);
 };
 
 struct GeometryData {

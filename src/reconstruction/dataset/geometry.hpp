@@ -153,8 +153,12 @@ public:
                         glm::vec2 minmax = minmaxLayerProj(projection_matrices_mat4[i], l);
                         float min = minmax[0];
                         float max = minmax[1];
-                        if((min >= viewports_vec4[i][2] && min < viewports_vec4[i][3]) || (max >= viewports_vec4[i][2] && max < viewports_vec4[i][3])) {
-                            output.mvp_indexes[sit][l].push_back(uint16_t(i*prm_d.module_number+module_index)); 
+                        /*if((min >= viewports_vec4[i][2] && min < viewports_vec4[i][3]) 
+                            || (max >= viewports_vec4[i][2] && max < viewports_vec4[i][3])
+                            || (min < viewports_vec4[i][3] && max >= viewports_vec4[i][2])
+                            ) {*/
+                        if( !(min >= viewports_vec4[i][3] && max >= viewports_vec4[i][3]) && !(min < viewports_vec4[i][2] && max < viewports_vec4[i][2]) ) {
+                            output.mvp_indexes[sit][l].push_back(uint16_t(i)); 
                             output.image_indexes[sit][l].push_back(sit_index); 
                         }
                     }

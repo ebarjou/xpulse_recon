@@ -145,7 +145,11 @@ namespace reconstruction {
                         for(int i = 0; i < projections.size(); ++i) {
                             processed_projections[i] = FIXED_TO_FLOAT(projections[i]);
                         }
-                        _dataset.saveSitImages(processed_projections, sit);
+                        int id = 0;
+                        for(int64_t l = sit; l < prm_g.projections; l += prm_r.sit) {
+                            _dataset.saveImage(std::vector(processed_projections.begin()+id*prm_g.dwidth*prm_g.dheight, processed_projections.begin()+(id+1)*prm_g.dwidth*prm_g.dheight), prm_g.dwidth, prm_g.dheight, l);
+                            ++id;
+                        }                        
                     }
                 }
             }

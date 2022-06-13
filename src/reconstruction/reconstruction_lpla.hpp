@@ -141,7 +141,7 @@ public:
                             getBuffer(volumeBuffer[tid], layer, true);
                         }
 
-                        _dataset.saveLayer(layer, l);
+                        _dataset.saveLayer(layer, l, ((sit==prm_r.sit-1) && (mit == prm_r.it-1)));
                     }
 
                     #pragma omp single

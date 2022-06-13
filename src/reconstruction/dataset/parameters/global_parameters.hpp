@@ -15,8 +15,9 @@ struct ReconstructionData {
     bool mlog = true;
     float weight = 1.0f, weight_factor = 0.9f;
     bool normalize = false;
+    bool simulation = false;
 
-    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize);
+    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize, simulation);
 };
 
 struct GeometryData {

@@ -120,10 +120,12 @@ int main(int argc, char* argv[]) {
         return RETURN_CODE_ERROR_RECONSTRUCTION;
     }
 
-    //Execute the reconsturction
-    recon->exec();
-    
-    //If needed, execute the forward projection to save the proejction of the volume
+    if(parameters.recon.simulation == false) {
+        //Execute the reconsturction
+        recon->exec();
+    }
+
+    //If needed, execute the forward projection to save the projection of the volume
     if(!parameters.recon.proj_output.empty()) {
         recon->forward_exec();
     }

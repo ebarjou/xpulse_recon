@@ -120,7 +120,7 @@ namespace dataset {
         void saveLayers(std::vector<float> &data, int64_t index_start, int64_t index_end, bool MT = false) {
             #pragma omp parallel for if(MT)
             for(int64_t i = index_start; i < index_end; ++i) {
-                _dataLoader.saveLayer(data.data()+(i-index_start)*prm_g.vwidth*prm_g.vwidth, i);
+                _dataLoader.saveLayer(data.data()+(i-index_start)*prm_g.vwidth*prm_g.vwidth, i, true);
             }
         }
 
@@ -150,14 +150,13 @@ namespace dataset {
         }
 
         /**
-         * @brief get a single image
+         * @brief get a single image from a path
          * 
          * @param path of the image
          * @return std::vector<float> 
          */
         std::vector<float> getImage(std::string path) {
-            exit(-10);
-            return _dataLoader.getImage(0);
+            return _dataLoader.getImage(path);
         }
 
         /**
@@ -190,7 +189,7 @@ namespace dataset {
             /*for(int64_t l = start; l < end; l += step) {
                 _dataLoader.saveProjImage(&data[((l-start)/step)*prm_g.dwidth*prm_g.dheight], l);
             }*/
-            exit(-10);
+            //exit(-10);
         }
 
         void saveImage(const std::vector<float> &data, int width, int height, int id) {

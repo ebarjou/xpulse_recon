@@ -34,7 +34,7 @@ kernel void BackwardH(  global float* restrict volume,
         if(bounds) {
             const float value = sumImages[img_indexes[i]*detectorWidth*detectorHeight + coordinate2D.y*detectorWidth + coordinate2D.x];
             if(!isnan(value)) {
-                sum += sumImages[img_indexes[i]*detectorWidth*detectorHeight + coordinate2D.y*detectorWidth + coordinate2D.x];
+                sum += value;
                 ++contributions;
             }
         }

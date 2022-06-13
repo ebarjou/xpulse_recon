@@ -46,9 +46,10 @@ public:
         
         struct layers{std::mutex m; reconstruction::gpu::Buffer b;};
         std::vector<layers> volumeBuffers(VOLUME_BUFFERS);
-        for(int i = 0; i < VOLUME_BUFFERS; ++i) {
+        for(int64_t i = 0; i < VOLUME_BUFFERS; ++i) {
             volumeBuffers[i].b = createBuffer<float>(prm_g.vwidth * prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW, WAVEFRONT_SIZE);
         }
+        glm::vec3 offset{0,0,0};
 
         omp_set_nested(0);
         #pragma omp parallel num_threads(CPU_THREADS)
@@ -77,7 +78,7 @@ public:
             backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
             backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOXEL_SIZE_F, prm_g.vx);
             backwardh.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
-            setOrigin(backwardh, reconstruction::gpu::INDEX_HBACKWARD_ORIGIN_F4, prm_g.orig, {prm_g.vx, prm_g.vx, prm_g.vx});
+            
 
             reconstruction::gpu::Kernel forwardh(getOcl(), kernel_hforward_source, "ForwardH");
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffers[vid].b);
@@ -90,7 +91,6 @@ public:
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
             forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOXEL_SIZE_F, prm_g.vx);
             forwardh.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
-            setOrigin(forwardh, reconstruction::gpu::INDEX_HFORWARD_ORIGIN_F4, prm_g.orig, {prm_g.vx, prm_g.vx, prm_g.vx});
 
             for(int mit = 0; mit < prm_r.it; ++mit) {
                 #pragma omp single
@@ -99,13 +99,19 @@ public:
                 for(int sit = 0; sit < prm_r.sit; ++sit) {
                     #pragma omp single
                     {
-                        setBuffer(queue, sumImagesBuffer, 0);
-                        wait(queue);
                         std::cout << "Executing reconstruction..." << (100*(mit*prm_r.sit+sit))/(prm_r.it*prm_r.sit) << "%" << "\r" << std::flush;
+                        offset = getRandomizedOffset();
                     }
+                    setOrigin(backwardh, reconstruction::gpu::INDEX_HBACKWARD_ORIGIN_F4, prm_g.orig, offset);
+                    setOrigin(forwardh, reconstruction::gpu::INDEX_HFORWARD_ORIGIN_F4, prm_g.orig, offset);
 
                     //Forward
                     if(sit > 0 || mit > 0) {
+                        #pragma omp single
+                        {
+                            setBuffer(queue, sumImagesBuffer, 0);
+                            wait(queue);
+                        }
                         #pragma omp for schedule(dynamic)
                         for(int l = 0; l < prm_g.vheight; ++l) {
                             volume = _dataset.getLayer(l);
@@ -128,22 +134,31 @@ public:
                         }
                     }
                     wait(queue);
+                    #pragma omp barrier
 
                     //Error
                     if(sit > 0 || mit > 0) {
+                        #pragma omp single
+                        getBuffer(queue, sumImagesBuffer, sumImages, true);
+
+                        #pragma omp for
+                        for(int64_t i = 0; i < sumImages.size(); ++i) {
+                            float* dst = sumImages.data();
+                            uint32_t* src = (uint32_t*)sumImages.data();
+                            dst[i] = FIXED_TO_FLOAT(src[i]);
+                        }
+
                         #pragma omp for schedule(dynamic)
                         for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
                             std::vector<float> image = _dataset.getImage(j);
                             int id = (j-sit)/prm_r.sit;
 
                             float* dst = sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
-                            uint32_t* src = (uint32_t*)sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
                             float* ref = image.data();
 
                             int64_t imageSize = int64_t(image.size());
                             for(int64_t i = 0; i < imageSize; ++i) {
-                                float value = FIXED_TO_FLOAT(src[i]);
-                                dst[i] = std::log(std::max(ref[i]/std::max(value,EPSILON), EPSILON))*weight;
+                                dst[i] = std::log(std::max(ref[i]/std::max(dst[i],EPSILON), EPSILON))*weight;
                             }
                         }
                     } else {
@@ -162,6 +177,8 @@ public:
                         }
                     }
 
+                    #pragma omp barrier
+
                     #pragma omp single
                     setBuffer(queue, sumImagesBuffer, sumImages, true);
 
@@ -174,7 +191,7 @@ public:
                             setBuffer(queue, volumeBuffers[vid].b, volume);
                         } else {
                             volumeBuffers[vid].m.lock();
-                            setBuffer(queue, volumeBuffers[vid].b, 1.0f);
+                            setBuffer(queue, volumeBuffers[vid].b, 1.0f/(float)std::sqrt(prm_g.vwidth*prm_g.vwidth));
                         }
 
                         setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
@@ -189,6 +206,8 @@ public:
 
                         _dataset.saveLayer(volume, l, ((sit==prm_r.sit-1) && (mit == prm_r.it-1)));
                     }
+
+                    #pragma omp barrier
                 }
 
                 #pragma omp single
@@ -200,8 +219,16 @@ public:
     }
     
 private:
-    void setOrigin(reconstruction::gpu::Kernel &kernel, int64_t param_index, glm::vec3 origin, glm::vec3 randomizedOffset = {0, 0, 0}) {
-        for(int i = 0; i < 3; ++i) origin[i] += std::uniform_real_distribution<float>(0, randomizedOffset[i])(_randomEngine);
+    glm::vec3 getRandomizedOffset() {
+        glm::vec3 offset{0,0,0};
+        for(int i = 0; i < 3; ++i) {
+            offset[i] += std::uniform_real_distribution<float>(0, prm_g.vx)(_randomEngine);
+        }
+        return offset;
+    }
+
+    void setOrigin(reconstruction::gpu::Kernel &kernel, int64_t param_index, glm::vec3 origin, glm::vec3 offset) {
+        origin += offset;
         kernel.setKernelArgument(param_index, cl_float4{origin.x, origin.y, origin.z, 1.0f});
     }
 };

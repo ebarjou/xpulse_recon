@@ -116,8 +116,12 @@ public:
      * @param layer index of the layer, from top to bottom
      */
     std::vector<float> getLayer(int64_t layer) {
-        //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);   
-        return loadZSTD(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);   
+        //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);
+        if(std::filesystem::exists(getOutputFilePath("layer", layer, "zstd"))) {
+            return loadZSTD(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);
+        } else {
+            return loadTIFF(getOutputFilePath("layer", layer, "tif"), prm_g.vwidth, prm_g.vwidth);
+        }
     }
 
     /**
@@ -162,7 +166,11 @@ public:
     }
 
     void saveImage(const float *data, int width, int height, int id) {
-        saveTIFF(getTempFilePath(_proj_folder, "tmp", id, "tif"), data, width, height);
+        if(prm_r.proj_output.empty()) {
+            saveTIFF(getOutputFilePath("projection", id, "tif"), data, width, height);
+        } else {
+            saveTIFF(getTempFilePath(prm_r.proj_output, "p", id, "tif"), data, width, height);
+        }
     }
 
 private:

@@ -118,7 +118,8 @@ public:
 
     cl::CommandQueue createQueue() {
         cl_int error_queue_creation;
-        auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
+        //auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
+        auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, 0, &error_queue_creation };
         CHECK(error_queue_creation)
         return queues;
     }

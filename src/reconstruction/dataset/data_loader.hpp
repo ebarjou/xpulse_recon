@@ -27,7 +27,8 @@ public:
         _parameters(parameters),
         _tiff_files(tiff_files)
     {
-        //Ensure output directory exist
+        //Ensure output directory exist and is empty
+        std::filesystem::remove_all(prm_r.output);
         std::filesystem::create_directories(prm_r.output);
         if(!prm_r.proj_output.empty()) {
             std::filesystem::create_directories(prm_r.proj_output);
@@ -71,19 +72,32 @@ public:
                         _max_value = std::max(_max_value, *max);
                     }
                 }
+                #pragma single
+                {
+                    if(prm_r.mlog) {
+                        _min_value = -std::log(std::max(std::min(_max_value, 1.0f-EPSILON), EPSILON));
+                        _max_value = -std::log(std::max(std::min(_min_value, 1.0f-EPSILON), EPSILON));
+                    }
+                }
             }
+
             #pragma omp for schedule(dynamic)
             for(int i = 0; i < prm_g.projections; ++i) {
                 //Read
                 auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-                //Normalize
-                if(prm_r.normalize) {
-                    std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?(v-_min_value)/(_max_value-_min_value):(_max_value+_min_value)/2; });
-                }
+                //Remove NaNs ans Infs
+                std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?v:(_max_value+_min_value)/2; });
                 //Log
                 if(prm_r.mlog) {
                     std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
                 }
+                //Normalize
+                if(prm_r.normalize) {
+                    std::for_each(data.begin(), data.end(), [this](float& v) { v = (v-_min_value)/(_max_value-_min_value); });
+                }
+                //Clamp
+                std::for_each(data.begin(), data.end(), [this](float& v) { v = std::clamp(v, LARGE_EPSILON, 1.0f-LARGE_EPSILON); });
+
                 //Write
                 if(chunks) {
                     for(int c = 0; c < prm_m2.chunks.size(); ++c) {
@@ -98,6 +112,7 @@ public:
             }
         }
         std::cout << "Ok." << std::endl;
+        if(prm_r.normalize) std::cout << "Pre-normalisation value interval : [" << _min_value << ", " << _max_value << "]" << std::endl;
     }
 
     /**
@@ -118,7 +133,7 @@ public:
     std::vector<float> getLayer(int64_t layer) {
         //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);
         if(std::filesystem::exists(getOutputFilePath("layer", layer, "zstd"))) {
-            return loadZSTD(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);
+            return loadZSTD16(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);
         } else {
             return loadTIFF(getOutputFilePath("layer", layer, "tif"), prm_g.vwidth, prm_g.vwidth);
         }
@@ -141,7 +156,7 @@ public:
             std::filesystem::remove(getOutputFilePath("layer", layer, "zstd"));
         } else {
             //saveZFP(getOutputFilePath("layer", layer, "zfp"), data, prm_g.vwidth, prm_g.vwidth);
-            saveZSTD(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
+            saveZSTD16(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
         } 
     }
 
@@ -157,7 +172,7 @@ public:
     }
 
     /**
-     * @brief REad a tiff image from a specified path
+     * @brief Read a tiff image from a specified path
      * 
      * @param path to the file
      */
@@ -270,7 +285,7 @@ private:
             vmax = std::max(image[i], vmax);
         }
         for(int i = 0; i < width*height; ++i) {
-            input[i] = uint16_t(std::floor(((image[i]-vmin)/(vmax-vmin))*65535.0f));
+            input[i] = uint16_t(std::floor(((image[i]-vmin)/(vmax-vmin))*65534.0f))+1;
         }
         size_t const output_size = ZSTD_compress(output.data(), output.size(), input.data(), input.size()*sizeof(uint16_t), zstd_compression_level);
         

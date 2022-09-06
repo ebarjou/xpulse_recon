@@ -11,7 +11,7 @@ class ReconstructionHartmann : public reconstruction::Reconstruction {
     int64_t width, height;
     float factor = 0.0f;
     float iterations;
-    uint32_t total_iterations_done = 0;
+    float total_iterations_done = 0;
     float scaling = 1.0f;
     float minimum = 0.0f; 
 
@@ -115,8 +115,8 @@ public:
 
                 if(sit > 0 || mit > 0) {
                     forward();
-                    if(prm_hm.iterations > 0 && mit%prm_hm.iterations_step == 0) {
-                        std::cout << "|" << mit << "|" << std::endl;
+                    if(iterations > 0 && mit%prm_hm.iterations_step == 0) {
+                        std::cout << "|" << mit << "/" << prm_r.it << "| " << int(iterations*std::max(width, height)) << " IR-WF iterations" << std::endl;
                         std::vector<int32_t> projections;
                         wait();
                         getBuffer(sumImagesBuffer, projections, true);
@@ -136,6 +136,7 @@ public:
         }
         wait();
         std::cout << "Ok" << std::endl;
+        std::cout << total_iterations_done << " WF-IR iterations done" << std::endl;
 
         std::cout << "Saving result..." << std::flush;
         std::vector<float> volume;
@@ -184,8 +185,11 @@ public:
             ph[i] = (ph[i]-minimum)/scaling;
         }
 
-        total_iterations_done += uint32_t(iterations*std::max(width, height));
+        total_iterations_done += iterations;
         iterations *= prm_hm.iterations_fct;
+        if(std::floor(iterations*std::max(width, height)) == 0) {
+            iterations = 0.0f;
+        }
     }
 
 private:

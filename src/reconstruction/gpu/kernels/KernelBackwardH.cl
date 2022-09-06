@@ -11,6 +11,7 @@ kernel void BackwardH(  global float* restrict volume,
                         constant const ushort* restrict indexes,
                         constant const ushort* restrict img_indexes,
                         
+                        const float weight,
                         const uint angles,
                         const uint yOffset,
                         const float4 origin,
@@ -39,5 +40,5 @@ kernel void BackwardH(  global float* restrict volume,
             }
         }
     }
-    volume[id] *= exp(sum/contributions);
+    volume[id] = volume[id]*pow(sum/contributions, weight);
 }

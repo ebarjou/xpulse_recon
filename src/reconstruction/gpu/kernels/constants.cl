@@ -14,13 +14,14 @@ typedef uint fixed32;
 #endif
 
 
-#define FIXED_FRAC_BITS 22
+#define FIXED_FRAC_BITS 28
 #define FIXED_FRAC_MAX = (1 << (32-FIXED_FRAC_BITS))
 #define FIXED_FRAC_ONE (1 << FIXED_FRAC_BITS)
 #define FIXED_FRAC_ZERO ((fixed32)0)
 #define FIXED_TO_FLOAT(x) (((float)(x)) / FIXED_FRAC_ONE)
 #define FLOAT_TO_FIXED(x) ((fixed32)((x) * FIXED_FRAC_ONE))
 #define EPSILON FIXED_TO_FLOAT(1)
+#define LARGE_EPSILON 1e-9f
 
 typedef struct {
     float4 mvp[4];
@@ -79,6 +80,7 @@ enum INDEX_HBACKWARD{   INDEX_HBACKWARD_VOLUME_BUFFER = 0,
                         INDEX_HBACKWARD_INDEX_BUFFER,
                         INDEX_HBACKWARD_IMGINDEX_BUFFER,
 
+                        INDEX_HBACKWARD_WEIGHT_F,
                         INDEX_HBACKWARD_ANGLES_U,
                         INDEX_HBACKWARD_YOFFSET_U,
                         INDEX_HBACKWARD_ORIGIN_F4,

@@ -37,13 +37,50 @@ public:
         return totalGPUSizeByte;
     }
 
+    void initBKWParameters(reconstruction::gpu::Kernel &kernel, 
+                                reconstruction::gpu::Buffer volumeBuffer, 
+                                reconstruction::gpu::Buffer sumImagesBuffer, 
+                                reconstruction::gpu::Buffer indexBuffer, 
+                                reconstruction::gpu::Buffer imgIndexBuffer, 
+                                reconstruction::gpu::Buffer projDataBuffer) {
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLUME_BUFFER, volumeBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_INDEX_BUFFER, indexBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_IMGINDEX_BUFFER, imgIndexBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_PROJDATA_BUFFER, projDataBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOXEL_SIZE_F, prm_g.vx);
+        kernel.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
+    }
+
+    void initFWDParameters(reconstruction::gpu::Kernel &kernel, 
+                                reconstruction::gpu::Buffer volumeBuffer, 
+                                reconstruction::gpu::Buffer sumImagesBuffer, 
+                                reconstruction::gpu::Buffer indexBuffer, 
+                                reconstruction::gpu::Buffer imgIndexBuffer, 
+                                reconstruction::gpu::Buffer projDataBuffer) {
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_INDEX_BUFFER, indexBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_IMGINDEX_BUFFER, imgIndexBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_PROJDATA_BUFFER, projDataBuffer);
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
+        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOXEL_SIZE_F, prm_g.vx);
+        kernel.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
+    }
+
     void exec() {
         std::vector<float> sumImages(prm_g.dwidth * prm_g.dheight * (prm_g.concurrent_projections+1));
         
         float weight = prm_r.weight;
         auto projDataBuffer = createBuffer<float>(mvpPerLayer.mvp, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
         auto sumImagesBuffer = createBuffer<float>(prm_g.dheight*prm_g.dwidth*(prm_g.concurrent_projections+1), reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW);
-        
+        setBuffer(sumImagesBuffer, 1.0, true);
+
         struct layers{std::mutex m; reconstruction::gpu::Buffer b;};
         std::vector<layers> volumeBuffers(VOLUME_BUFFERS);
         for(int64_t i = 0; i < VOLUME_BUFFERS; ++i) {
@@ -68,29 +105,10 @@ public:
             auto imgIndexBuffer = createBuffer<uint16_t>(mvpPerLayer.maxAngles, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
             
             reconstruction::gpu::Kernel backwardh(getOcl(), kernel_hbackward_source, "BackwardH");
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLUME_BUFFER, volumeBuffers[vid].b);
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_INDEX_BUFFER, indexBuffer);
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_IMGINDEX_BUFFER, imgIndexBuffer);
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_PROJDATA_BUFFER, projDataBuffer);
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
-            backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOXEL_SIZE_F, prm_g.vx);
-            backwardh.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
-            
+            initBKWParameters(backwardh, volumeBuffers[vid].b, sumImagesBuffer, indexBuffer, imgIndexBuffer, projDataBuffer);
 
             reconstruction::gpu::Kernel forwardh(getOcl(), kernel_hforward_source, "ForwardH");
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffers[vid].b);
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_INDEX_BUFFER, indexBuffer);
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_IMGINDEX_BUFFER, imgIndexBuffer);
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_PROJDATA_BUFFER, projDataBuffer);
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
-            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOXEL_SIZE_F, prm_g.vx);
-            forwardh.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
+            initFWDParameters(forwardh, volumeBuffers[vid].b, sumImagesBuffer, indexBuffer, imgIndexBuffer, projDataBuffer);
 
             for(int mit = 0; mit < prm_r.it; ++mit) {
                 #pragma omp single
@@ -147,38 +165,26 @@ public:
                             uint32_t* src = (uint32_t*)sumImages.data();
                             dst[i] = FIXED_TO_FLOAT(src[i]);
                         }
-
-                        #pragma omp for schedule(dynamic)
-                        for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
-                            std::vector<float> image = _dataset.getImage(j);
-                            int id = (j-sit)/prm_r.sit;
-
-                            float* dst = sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
-                            float* ref = image.data();
-
-                            int64_t imageSize = int64_t(image.size());
-                            for(int64_t i = 0; i < imageSize; ++i) {
-                                dst[i] = std::log(std::max(ref[i]/std::max(dst[i],EPSILON), EPSILON))*weight;
-                            }
-                        }
                     } else {
-                        #pragma omp for schedule(dynamic)
-                        for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
-                            std::vector<float> image = _dataset.getImage(j);
-                            int id = (j-sit)/prm_r.sit;
+                        std::fill(sumImages.begin(), sumImages.end(), 1.0f);
+                    }
+                    #pragma omp for schedule(dynamic)
+                    for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
+                        std::vector<float> image = _dataset.getImage(j);
+                        int id = (j-sit)/prm_r.sit;
 
-                            float* dst = sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
-                            float* ref = image.data();
+                        float* dst = sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
+                        float* ref = image.data();
 
-                            int64_t imageSize = int64_t(image.size());
-                            for(int64_t i = 0; i < imageSize; ++i) {
-                                dst[i] = std::log(std::max(ref[i], EPSILON));
-                            }
+                        int64_t imageSize = int64_t(image.size());
+                        for(int64_t i = 0; i < imageSize; ++i) {
+                            double reference = double(std::max(ref[i],EPSILON));
+                            double current_value = double(std::max(dst[i],EPSILON));
+                            double new_value = reference/current_value;
+                            dst[i] = float(new_value);
                         }
                     }
-
                     #pragma omp barrier
-
                     #pragma omp single
                     setBuffer(queue, sumImagesBuffer, sumImages, true);
 
@@ -196,6 +202,7 @@ public:
 
                         setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
                         setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]); 
+                        backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_WEIGHT_F, weight);
                         backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_ANGLES_U, uint32_t(mvpPerLayer.mvp_indexes[sit][l].size()));
                         backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_YOFFSET_U, uint32_t(l));
                         backwardh.executeKernel(queue);

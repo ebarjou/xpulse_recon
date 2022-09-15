@@ -14,14 +14,14 @@ typedef uint fixed32;
 #endif
 
 
-#define FIXED_FRAC_BITS 28
+#define FIXED_FRAC_BITS 26
 #define FIXED_FRAC_MAX = (1 << (32-FIXED_FRAC_BITS))
 #define FIXED_FRAC_ONE (1 << FIXED_FRAC_BITS)
 #define FIXED_FRAC_ZERO ((fixed32)0)
 #define FIXED_TO_FLOAT(x) (((float)(x)) / FIXED_FRAC_ONE)
 #define FLOAT_TO_FIXED(x) ((fixed32)((x) * FIXED_FRAC_ONE))
 #define EPSILON FIXED_TO_FLOAT(1)
-#define LARGE_EPSILON 1e-9f
+#define LARGE_EPSILON FIXED_TO_FLOAT(1)
 
 typedef struct {
     float4 mvp[4];

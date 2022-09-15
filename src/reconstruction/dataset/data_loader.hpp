@@ -89,7 +89,7 @@ public:
                 std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?v:(_max_value+_min_value)/2; });
                 //Log
                 if(prm_r.mlog) {
-                    std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::max(std::min(v, 1.0f-EPSILON), EPSILON)); });
+                    std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::clamp(v, LARGE_EPSILON, 1.0f-LARGE_EPSILON)); });
                 }
                 //Normalize
                 if(prm_r.normalize) {

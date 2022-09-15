@@ -134,8 +134,8 @@ public:
                         for(int l = 0; l < prm_g.vheight; ++l) {
                             volume = _dataset.getLayer(l);
 
-                            setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
-                            setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]); 
+                            setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]);
+                            setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]);
                             
                             volumeBuffers[vid].m.lock();
 

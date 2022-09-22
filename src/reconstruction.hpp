@@ -315,11 +315,7 @@ namespace reconstruction {
 
     };
 
-    #include "reconstruction/reconstruction_n.hpp"
-    #include "reconstruction/reconstruction_lpln.hpp"
-    #include "reconstruction/reconstruction_lpla.hpp"
-    #include "reconstruction/reconstruction_lplh.hpp"
-    #include "reconstruction/reconstruction_chunk.hpp"
+    #include "reconstruction/reconstruction_abs.hpp"
     #include "reconstruction/reconstruction_hartmann.hpp"
     #include "reconstruction/reconstruction_ipr.hpp"
 }

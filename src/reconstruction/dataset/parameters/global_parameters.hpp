@@ -9,7 +9,7 @@ struct ReconstructionData {
     std::string input = "./";
     std::string output = "./recon/";
     std::string proj_output = "";
-    Method method = Method::method_1b;
+    Method method = Method::abs;
     
     int64_t it = 1, sit = 10;
     bool mlog = true;

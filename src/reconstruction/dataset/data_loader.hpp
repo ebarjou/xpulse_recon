@@ -103,16 +103,7 @@ public:
                 std::for_each(data.begin(), data.end(), [this](float& v) { v = std::clamp(v, LARGE_EPSILON, 1.0f-LARGE_EPSILON); });
 
                 //Write
-                if(chunks) {
-                    for(int c = 0; c < prm_m2.chunks.size(); ++c) {
-                        saveZSTD(getTempFilePath(_proj_folder, "p", c*prm_g.projections+i, "zstd"), 
-                                data.data()+prm_g.dwidth*prm_m2.chunks[c].iOffset, 
-                                prm_g.dwidth, prm_m2.chunks[c].iSize
-                        );
-                    }
-                } else {
-                    saveZSTD(getTempFilePath(_proj_folder, "p", i, "zstd"), data.data(), prm_g.dwidth, prm_g.dheight);
-                }
+                saveZSTD(getTempFilePath(_proj_folder, "p", i, "zstd"), data.data(), prm_g.dwidth, prm_g.dheight);
             }
         }
         std::cout << "Ok." << std::endl;

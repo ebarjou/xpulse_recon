@@ -8,7 +8,6 @@
 namespace dataset {
     #include "dataset/parameters.hpp"
     #include "dataset/geometry.hpp"
-    #include "dataset/geometry_chunk.hpp"
     #include "dataset/data_loader.hpp"
 
     /**
@@ -157,24 +156,6 @@ namespace dataset {
          */
         std::vector<float> getImage(std::string path) {
             return _dataLoader.getImage(path);
-        }
-
-        /**
-         * @brief Get all images, cropped to fit a chunk, and separated in sub-iterations
-         * 
-         * @param chunk 
-         * @return std::vector<std::vector<float>> a vector for each sub-iterations containing the cropped images
-         */
-        std::vector<std::vector<float>> getImagesCropped(int64_t chunk, bool MT = false) {
-            std::vector<std::vector<float>> output(prm_r.sit);
-            for(int sit = 0; sit < prm_r.sit; ++sit) {
-                output[sit] = std::vector<float>(((prm_g.projections-sit)/prm_r.sit)*prm_g.dwidth*prm_m2.chunks[sit].iSize);
-                #pragma omp parallel for if(MT)
-                for(int i = sit; i < prm_g.projections; i += prm_r.sit) {
-                    auto image = _dataLoader.getImage(chunk*prm_g.projections+i);
-                    std::copy(image.begin(), image.end(), output[sit].begin()+((i-sit)/prm_r.sit)*prm_g.dwidth*prm_m2.chunks[sit].iSize);
-                }
-            }
         }
 
         /**

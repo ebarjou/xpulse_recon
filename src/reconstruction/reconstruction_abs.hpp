@@ -12,13 +12,13 @@ std::string kernel_hbackward_source = std::string(
     #include "reconstruction/gpu/kernels/headers/KernelBackwardH.hpp"
 );
 
-class ReconstructionLPLH : public reconstruction::Reconstruction {
+class ReconstructionAbs : public reconstruction::Reconstruction {
     const uint32_t CPU_THREADS = 12;
     const uint32_t VOLUME_BUFFERS = 4;
     reconstruction::dataset::MvpPerLayer mvpPerLayer;
 
 public:
-    ReconstructionLPLH(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), mvpPerLayer(_dataset.getGeometry()->getMvpPerLayer())
+    ReconstructionAbs(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), mvpPerLayer(_dataset.getGeometry()->getMvpPerLayer())
     {
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");

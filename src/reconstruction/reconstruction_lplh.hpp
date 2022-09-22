@@ -23,7 +23,21 @@ public:
         if(requieredGPUMemory() > getOcl().memorySize) {
             throw std::runtime_error("Not enough GPU memory");
         }
-        _dataset.initialize(false);  
+        //RAM repartition
+        int64_t remainingRAM = prm_r.usable_ram_go*1024*1024*1024;
+        int64_t singleImageSizeRAM = prm_g.dheight*prm_g.dwidth*sizeof(float);
+        int64_t imageSizeRAM = prm_g.concurrent_projections*singleImageSizeRAM;
+        remainingRAM -= imageSizeRAM;
+
+        int64_t layerSizeRAM = prm_g.vwidth*prm_g.vwidth*sizeof(float);
+        if(remainingRAM > layerSizeRAM) {
+            int64_t layersInRAM = std::min(remainingRAM/layerSizeRAM, prm_g.vheight);
+            int64_t layersInRAMFrequency = prm_g.vheight/layersInRAM;
+            layersInRAM = prm_g.vheight/layersInRAMFrequency;
+            _dataset.initialize(false, layersInRAMFrequency);  
+        } else {
+            throw new std::exception("Not enough RAM allocated");
+        }
     }
 
     uint64_t requieredGPUMemory() {

@@ -22,6 +22,8 @@ class DataLoader {
     std::vector<float> _max_per_layer;
     float _layers_max = 0.0f;
 
+    int64_t layersInRAMFrequency;
+    std::vector<std::vector<float>> layerStorage;
 public:
     DataLoader(Parameters *parameters, std::vector<std::string> tiff_files) : 
         _parameters(parameters),
@@ -46,7 +48,9 @@ public:
      * @brief Create and fill necesarry temporary files
      * 
      */
-    void initializeTempImages(bool chunks) {
+    void initializeTempImages(bool chunks, int64_t layersInRAMFrequency) {
+        this->layersInRAMFrequency = layersInRAMFrequency;
+        layerStorage.resize(prm_g.vheight);
         std::cout << "Pre-processing images..."<< std::flush;
 
         //Find min and max
@@ -113,6 +117,7 @@ public:
         }
         std::cout << "Ok." << std::endl;
         if(prm_r.normalize) std::cout << "Pre-normalisation value interval : [" << _min_value << ", " << _max_value << "]" << std::endl;
+        std::cout << "One out of " << layersInRAMFrequency << " layers will be stored in RAM" << std::endl;
     }
 
     /**
@@ -131,6 +136,9 @@ public:
      * @param layer index of the layer, from top to bottom
      */
     std::vector<float> getLayer(int64_t layer) {
+        if(layer%layersInRAMFrequency == 0) {
+            return layerStorage[layer];
+        }
         //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);
         if(std::filesystem::exists(getOutputFilePath("layer", layer, "zstd"))) {
             return loadZSTD16(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);
@@ -155,8 +163,13 @@ public:
             saveTIFF(getOutputFilePath("layer", layer, "tif"), data, prm_g.vwidth, prm_g.vwidth);
             std::filesystem::remove(getOutputFilePath("layer", layer, "zstd"));
         } else {
-            //saveZFP(getOutputFilePath("layer", layer, "zfp"), data, prm_g.vwidth, prm_g.vwidth);
-            saveZSTD16(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
+            if(layer%layersInRAMFrequency == 0) {
+                layerStorage[layer].resize(prm_g.vwidth*prm_g.vwidth);
+                std::memcpy(layerStorage[layer].data(), data, prm_g.vwidth*prm_g.vwidth*sizeof(float));
+            } else {
+                //saveZFP(getOutputFilePath("layer", layer, "zfp"), data, prm_g.vwidth, prm_g.vwidth);
+                saveZSTD16(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
+            }
         } 
     }
 

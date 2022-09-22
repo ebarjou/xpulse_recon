@@ -43,8 +43,8 @@ namespace dataset {
          * @brief Load all data and create temporary files if needed
          * 
          */
-        void initialize(bool chunk) {
-            _dataLoader.initializeTempImages(chunk);
+        void initialize(bool chunk, int64_t layersInRAMFrequency = 0) {
+            _dataLoader.initializeTempImages(chunk, layersInRAMFrequency);
         }
 
         /**

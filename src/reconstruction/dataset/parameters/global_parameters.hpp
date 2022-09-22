@@ -16,8 +16,9 @@ struct ReconstructionData {
     float weight = 1.0f, weight_factor = 0.9f;
     bool normalize = false;
     bool simulation = false;
+    int64_t usable_ram_go = 40;
 
-    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize, simulation);
+    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize, simulation, usable_ram_go);
 };
 
 struct GeometryData {

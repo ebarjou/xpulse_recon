@@ -5,6 +5,53 @@
 
 #pragma once
 
+struct ImageFXP {
+    std::valarray<uint16_t> content;
+    float min_value, max_value;
+    uint32_t width, height;
+
+    ImageFXP() : content(), min_value(0), max_value(0) {};
+
+    ImageFXP(std::valarray<float> &float_content, uint32_t width, uint32_t height)
+             : width(width), height(height) {
+        
+        const auto [min, max] = std::minmax_element(std::begin(float_content), std::end(float_content));
+        min_value = *min;
+        max_value = *max;
+        content = std::valarray<uint16_t>(width*height);
+        for(int i = 0; i < width*height; ++i) {
+            content[i] = uint16_t( 65535.0f * ((float_content[i]-min_value)/(max_value-min_value)));
+        }
+    }
+
+    ImageFXP(std::valarray<uint16_t> uint16_content, uint32_t width, uint32_t height, float min, float max)
+             : width(width), height(height)  {
+        min_value = min;
+        max_value = max;
+        content = std::valarray<uint16_t>(&uint16_content[0], width*height);
+    }
+
+    std::valarray<float> getFloatContent() {
+        std::valarray<float> float_content(content.size());
+        for(int i = 0; i < content.size(); ++i) {
+            float_content[i] = float(content[i]);
+        }
+        return (float_content/65535.0f)*(max_value-min_value) + min_value;
+    }
+
+    uint16_t* data() {
+        return &content[0];
+    }
+
+    uint32_t size() {
+        return content.size();
+    }
+
+    bool is_valid() {
+        return content.size() == width*height && content.size() > 0;
+    }
+};
+
 /**
  * @brief Handle the loading and writing of the images and layers from and to the hard-drive
  * Abstract the processing of the images (either pre-process and store in temp file or process at loading time)
@@ -14,16 +61,10 @@ class DataLoader {
     Parameters *_parameters;
     std::vector<std::string> _tiff_files;
     std::string _proj_folder;
-    float _min_value = std::numeric_limits<float>::max();
-    float _max_value = std::numeric_limits<float>::min();
-    size_t _subit_images_elements = 0;
-    double zfp_tolerance = 1.0/4096.0;
-    int zstd_compression_level = 1;
-    std::vector<float> _max_per_layer;
-    float _layers_max = 0.0f;
 
     int64_t layersInRAMFrequency;
-    std::vector<std::vector<float>> layerStorage;
+    std::vector<ImageFXP> layerStorage;
+
 public:
     DataLoader(Parameters *parameters, std::vector<std::string> tiff_files) : 
         _parameters(parameters),
@@ -35,7 +76,6 @@ public:
         if(!prm_r.proj_output.empty()) {
             std::filesystem::create_directories(prm_r.proj_output);
         }
-        _subit_images_elements = (prm_g.projections/prm_r.sit)*prm_g.dwidth*prm_g.dheight;
         _proj_folder = prm_r.output + "/projs/";
         std::filesystem::create_directories(_proj_folder);
     }
@@ -48,66 +88,16 @@ public:
      * @brief Create and fill necesarry temporary files
      * 
      */
-    void initializeTempImages(bool chunks, int64_t layersInRAMFrequency) {
+    void initialize(int64_t layersInRAMFrequency) {
         this->layersInRAMFrequency = layersInRAMFrequency;
         layerStorage.resize(prm_g.vheight);
+
         std::cout << "Pre-processing images..."<< std::flush;
-
-        //Find min and max
-        _max_per_layer.resize(prm_g.vheight);
-        #pragma omp parallel
-        {
-            if(prm_r.normalize) {
-                #pragma omp for schedule(dynamic)
-                for(int i = 0; i < _tiff_files.size(); ++i) {
-                    auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-                    data.erase(std::remove_if(std::begin(data), std::end(data),
-                            [](const auto& value) { return !std::isnormal(value); }),
-                            std::end(data)
-                    );
-                    const auto [min, max] = std::minmax_element(data.begin(), data.end(),
-                        [] (auto x, auto y) {
-                            return x < y ? true : isnan(x);
-                        }
-                    );
-                    #pragma omp critical
-                    {
-                        _min_value = std::min(_min_value, *min);
-                        _max_value = std::max(_max_value, *max);
-                    }
-                }
-                #pragma single
-                {
-                    if(prm_r.mlog) {
-                        _min_value = -std::log(std::max(std::min(_max_value, 1.0f-EPSILON), EPSILON));
-                        _max_value = -std::log(std::max(std::min(_min_value, 1.0f-EPSILON), EPSILON));
-                    }
-                }
-            }
-
-            #pragma omp for schedule(dynamic)
-            for(int i = 0; i < prm_g.projections; ++i) {
-                //Read
-                auto data = loadTIFF(_tiff_files[i], prm_g.dwidth, prm_g.dheight);
-                //Remove NaNs ans Infs
-                std::for_each(data.begin(), data.end(), [this](float& v) { v = std::isnormal(v)?v:(_max_value+_min_value)/2; });
-                //Log
-                if(prm_r.mlog) {
-                    std::for_each(data.begin(), data.end(), [](float& v) { v = -std::log(std::clamp(v, LARGE_EPSILON, 1.0f-LARGE_EPSILON)); });
-                }
-                //Normalize
-                if(prm_r.normalize) {
-                    std::for_each(data.begin(), data.end(), [this](float& v) { v = (v-_min_value)/(_max_value-_min_value); });
-                }
-                //Clamp
-                std::for_each(data.begin(), data.end(), [this](float& v) { v = std::clamp(v, LARGE_EPSILON, 1.0f-LARGE_EPSILON); });
-
-                //Write
-                saveZSTD(getTempFilePath(_proj_folder, "p", i, "zstd"), data.data(), prm_g.dwidth, prm_g.dheight);
-            }
+        #pragma omp parallel for schedule(dynamic)
+        for(int i = 0; i < prm_g.projections; ++i) {
+            saveTIFF(getTempFilePath(_proj_folder, "p", i, "tif"), loadExternalTIFF(_tiff_files[i]));
         }
         std::cout << "Ok." << std::endl;
-        if(prm_r.normalize) std::cout << "Pre-normalisation value interval : [" << _min_value << ", " << _max_value << "]" << std::endl;
         std::cout << "One out of " << layersInRAMFrequency << " layers will be stored in RAM" << std::endl;
     }
 
@@ -126,16 +116,11 @@ public:
      * 
      * @param layer index of the layer, from top to bottom
      */
-    std::vector<float> getLayer(int64_t layer) {
-        if(layer%layersInRAMFrequency == 0) {
+    ImageFXP getLayer(int64_t layer) {
+        if(layerStorage[layer].is_valid()) {
             return layerStorage[layer];
         }
-        //return loadZFP(getOutputFilePath("layer", layer, "zfp"), prm_g.vwidth, prm_g.vwidth);
-        if(std::filesystem::exists(getOutputFilePath("layer", layer, "zstd"))) {
-            return loadZSTD16(getOutputFilePath("layer", layer, "zstd"), prm_g.vwidth, prm_g.vwidth);
-        } else {
-            return loadTIFF(getOutputFilePath("layer", layer, "tif"), prm_g.vwidth, prm_g.vwidth);
-        }
+        return loadTIFF(getOutputFilePath("layer", layer, "tif"));
     }
 
     /**
@@ -144,24 +129,12 @@ public:
      * @param data must be at least of size width*width
      * @param layer index of the layer, from top to bottom
      */
-    void saveLayer(float* data, int64_t layer, bool finalize = false) {
-        if(finalize) {
-            if(prm_r.normalize) {
-                for(int i = 0; i < prm_g.vwidth*prm_g.vwidth; ++i) {
-                    data[i] = data[i]*(_max_value-_min_value);
-                }
-            }
-            saveTIFF(getOutputFilePath("layer", layer, "tif"), data, prm_g.vwidth, prm_g.vwidth);
-            std::filesystem::remove(getOutputFilePath("layer", layer, "zstd"));
+    void saveLayer(std::valarray<float> image, int64_t layer, bool finalize = false) {
+        if(layer%layersInRAMFrequency == 0 && !finalize) {
+            layerStorage[layer] = ImageFXP(image, prm_g.vwidth, prm_g.vwidth);
         } else {
-            if(layer%layersInRAMFrequency == 0) {
-                layerStorage[layer].resize(prm_g.vwidth*prm_g.vwidth);
-                std::memcpy(layerStorage[layer].data(), data, prm_g.vwidth*prm_g.vwidth*sizeof(float));
-            } else {
-                //saveZFP(getOutputFilePath("layer", layer, "zfp"), data, prm_g.vwidth, prm_g.vwidth);
-                saveZSTD16(getOutputFilePath("layer", layer, "zstd"), data, prm_g.vwidth, prm_g.vwidth);
-            }
-        } 
+            saveTIFF(getOutputFilePath("layer", layer, "tif"), ImageFXP(image, prm_g.vwidth, prm_g.vwidth));
+        }
     }
 
     /**
@@ -170,26 +143,42 @@ public:
      * @param id index of the image
      * @return std::vector<float> 
      */
-    std::vector<float> getImage(int64_t id) {
-        auto image = loadZSTD(getTempFilePath(_proj_folder, "p", id, "zstd"), prm_g.dwidth, prm_g.dheight);
-        return image;
+    ImageFXP getImage(int64_t id) {
+        return loadTIFF(getTempFilePath(_proj_folder, "p", id, "tif"));
     }
 
     /**
-     * @brief Read a tiff image from a specified path
+     * @brief Get the Images data
      * 
-     * @param path to the file
+     * @param id index of the image
+     * @return std::vector<float> 
      */
-    std::vector<float> getImage(std::string path) {
-        return loadTIFF(path, -1, -1);
+    ImageFXP getImage(std::string path) {
+        return loadTIFF(path);
     }
 
-    void saveImage(const float *data, int width, int height, int id) {
-        if(prm_r.proj_output.empty()) {
-            saveTIFF(getOutputFilePath("projection", id, "tif"), data, width, height);
-        } else {
-            saveTIFF(getTempFilePath(prm_r.proj_output, "p", id, "tif"), data, width, height);
+    bool checkTiffFile(std::string filename, uint16_t expected_format, uint32_t expected_width, uint32_t expected_height) {
+        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
+        if(!tiff) {
+            throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
         }
+        uint32_t width, height;
+        uint16_t format;
+        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
+        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
+        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
+        TIFFClose(tiff);
+        return width == expected_width && height == expected_height && format == expected_format;
+    }
+
+    void getTiffFileSize(std::string filename, uint32_t &width, uint32_t &height) {
+        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
+        if(!tiff) {
+            throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
+        }
+        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
+        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
+        TIFFClose(tiff);
     }
 
 private:
@@ -217,112 +206,85 @@ private:
         return std::string(ss.str());
     }
 
-    /**
-     * @brief Save the content of image to the tiff file specified
-     * 
-     * @param file path of the tiff file
-     * @param image data of the image
-     * @param width of the image
-     * @param height of the image
-     */
-    void saveTIFF(std::string file, const float *image, int64_t width, int64_t height) {
-        auto tif = TinyTIFFWriter_open(file.c_str(), 32, TinyTIFFWriter_Float, 1, uint32_t(width), uint32_t(height), TinyTIFFWriter_Greyscale);
-        if (tif) {
-            TinyTIFFWriter_writeImage(tif, image);
-            TinyTIFFWriter_close(tif);
-        }
+    void saveTIFF(std::string filename, ImageFXP &image) {
+        TIFF *tiff = TIFFOpen(filename.c_str(), "w");
+        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH, image.width); 
+        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH, image.height); 
+        TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, 16); 
+        TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, 1); 
+        TIFFSetField(tiff, TIFFTAG_ROWSPERSTRIP, image.height);
+        TIFFSetField(tiff, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+        TIFFSetField(tiff, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+        TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+        TIFFSetField(tiff, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+        TIFFSetField(tiff, TIFFTAG_XPOSITION, image.max_value);
+        TIFFSetField(tiff, TIFFTAG_YPOSITION, image.min_value);
+        TIFFSetField(tiff, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+        TIFFWriteRawStrip(tiff, 0, image.data(), image.size()*sizeof(uint16_t));
+        TIFFClose(tiff);
     }
 
-    /**
-     * @brief Load a tiff file
-     * 
-     * @param file path of the tiff file
-     * @param width ignored
-     * @param height ignored
-     */
-    std::vector<float> loadTIFF(std::string file, int64_t width, int64_t height) {
-        auto tiffr = TinyTIFFReader_open(file.c_str()); 
-        if (!tiffr || TinyTIFFReader_wasError(tiffr)) {
-            throw std::runtime_error("Corrupted or missing TIFF file");
+    ImageFXP loadTIFF(std::string filename) {
+        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
+        if(!tiff) {
+            throw new std::exception((std::string("Internal TIFF file ") + filename + std::string(" does not exist.")).c_str());
         }
-        const int32_t twidth = TinyTIFFReader_getWidth(tiffr); 
-        const int32_t theight = TinyTIFFReader_getHeight(tiffr);
-        //TODO : change width/height behavior
-        std::vector<float> image(twidth*theight);
-        
-        TinyTIFFReader_getSampleData(tiffr, image.data(), 0);
-        TinyTIFFReader_close(tiffr);
+        float min_value, max_value;
+        uint32_t width, height, rps;
+        uint16_t bps, spp, format;
+        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
+        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
+        TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bps); 
+        TIFFGetField(tiff, TIFFTAG_SAMPLESPERPIXEL, &spp);
+        TIFFGetField(tiff, TIFFTAG_ROWSPERSTRIP, &rps);
+        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
+        TIFFGetField(tiff, TIFFTAG_XPOSITION, &max_value);
+        TIFFGetField(tiff, TIFFTAG_YPOSITION, &min_value);
+        ImageFXP image;
+        if(format == SAMPLEFORMAT_UINT && bps == 16) {
+            std::valarray<uint16_t> values(width*height);
+            TIFFReadRawStrip(tiff, 0, &values[0], width*TIFFTAG_ROWSPERSTRIP*bps/8);
+            image = ImageFXP(values, width, height, min_value, max_value);
+        } else {
+            throw new std::exception("Unsupported TIFF format while attempting to read an internal TIFF file");
+        }
+        TIFFClose(tiff);
         return image;
     }
 
-    void saveZSTD(std::string filename, const float *image, int64_t width, int64_t height) {
-        std::vector<char> output(width*height*sizeof(float));
-        size_t const output_size = ZSTD_compress(output.data(), output.size(), image, width*height*sizeof(float), zstd_compression_level);
-        
-        auto file = std::ofstream(filename, std::ios::binary);
-        file.write(output.data(), output_size);
-        file.close();
+    ImageFXP loadExternalTIFF(std::string filename) {
+        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
+        if(!tiff) {
+            throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
+        }
+        uint32_t width, height;
+        uint16_t bps, spp, format;
+        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
+        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
+        TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bps); 
+        TIFFGetField(tiff, TIFFTAG_SAMPLESPERPIXEL, &spp);
+        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
+        ImageFXP image;
+        if(format == SAMPLEFORMAT_IEEEFP && bps == 32) {
+            std::valarray<float> values(width*height);
+            for(int i = 0; i < height; i++) {
+                TIFFReadScanline(tiff, &values[0]+i*width, i);
+            }
+            TIFFClose(tiff);
+            processExternalTIFF(values);
+            image = ImageFXP(values, width, height);
+        } else {
+            TIFFClose(tiff);
+            throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
+        }
+        return image;
     }
 
-    std::vector<float> loadZSTD(std::string filename, int64_t width, int64_t height) {
-        auto file = std::ifstream(filename, std::ios::binary);
-        file.seekg(0, std::ios::end);
-        size_t filesize=file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        std::vector<char> compressed(filesize);
-        std::vector<float> output(width*height);
-
-        file.read(compressed.data(), filesize);
-        file.close();
-
-        size_t const dSize = ZSTD_decompress(output.data(), output.size()*sizeof(float), compressed.data(), filesize);
-        return output;
-    }
-
-    void saveZSTD16(std::string filename, const float *image, int64_t width, int64_t height) {
-        std::vector<uint16_t> input(width*height);
-        std::vector<char> output(width*height*sizeof(uint16_t));
-        float vmin = 1<<32, vmax = -vmin;
-        for(int i = 0; i < width*height; ++i) {
-            vmin = std::min(image[i], vmin);
-            vmax = std::max(image[i], vmax);
+    void processExternalTIFF(std::valarray<float> &data) {
+        data[data<LARGE_EPSILON] = LARGE_EPSILON;
+        data[data>(1-LARGE_EPSILON)] = 1-LARGE_EPSILON;
+        if(prm_r.mlog) {
+            data = -std::log(data);
         }
-        for(int i = 0; i < width*height; ++i) {
-            input[i] = uint16_t(std::floor(((image[i]-vmin)/(vmax-vmin))*65534.0f))+1;
-        }
-        size_t const output_size = ZSTD_compress(output.data(), output.size(), input.data(), input.size()*sizeof(uint16_t), zstd_compression_level);
-        
-        auto file = std::ofstream(filename, std::ios::binary);
-        file.write((char*)(&vmin), sizeof(float));
-        file.write((char*)(&vmax), sizeof(float));
-        file.write(output.data(), output_size);
-        file.close();
-    }
-
-    std::vector<float> loadZSTD16(std::string filename, int64_t width, int64_t height) {
-        auto file = std::ifstream(filename, std::ios::binary);
-
-        float minmax[2];
-        file.read((char*)&minmax, sizeof(float)*2);
-
-        file.seekg(0, std::ios::end);
-        size_t filesize = size_t(file.tellg()) - sizeof(float)*2;
-
-        file.seekg(sizeof(float)*2, std::ios::beg);
-
-        std::vector<char> compressed(filesize);
-        std::vector<uint16_t> uncompressed(width*height);
-        std::vector<float> output(width*height);
-
-        file.read(compressed.data(), filesize);
-        file.close();
-
-        size_t const dSize = ZSTD_decompress(uncompressed.data(), uncompressed.size()*sizeof(uint16_t), compressed.data(), filesize);
-
-        for(int i = 0; i < width*height; ++i) {
-            output[i] = minmax[0]+(uncompressed[i]/65535.0f)*(minmax[1]-minmax[0]);
-        }
-        return output;
     }
 };

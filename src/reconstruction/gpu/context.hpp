@@ -105,7 +105,7 @@ public:
             case VENDOR_AMD: 
             case VENDOR_INTEL: 
             case VENDOR_OTHER: {
-                _ocl.memorySize = _ocl.memorySize -512*1024*1024; //512Mb
+                _ocl.memorySize = _ocl.memorySize -_ocl.memorySize/8;
             }
         }
         
@@ -175,7 +175,7 @@ public:
           typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
     Buffer createBuffer(std::vector<T> &storage, const MEM_ACCESS kernel = MEM_ACCESS_RW, const MEM_ACCESS host = MEM_ACCESS_RW) {
         Buffer buffer;
-        buffer.handle = allocateBuffer(storage.size()*sizeof(T), kernel, host, (void*)storage.data());
+        buffer.handle = allocateBuffer(storage.size()*sizeof(T), kernel, host, (void*)&storage[0]);
         buffer.elements = storage.size();
         buffer.bytePerSample = sizeof(T);
         buffer.kernelAccess = kernel;
@@ -190,26 +190,26 @@ public:
      * @param storage vector containing the data to be copied to the buffer
      * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
      */
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void setBuffer(const Buffer buffer, std::vector<T> &storage, const bool blocking = false) {
-        if(storage.empty()) return;
+    template <class S>
+    void setBuffer(const Buffer buffer, S &storage, const bool blocking = false) {
+        using T = typename S::value_type;
+        if(storage.size() == 0) return;
         if(storage.size() > buffer.elements) return;
         if(sizeof(T) != buffer.bytePerSample) return;
         if(blocking) {
-            CHECK(_ocl.writeQueue.enqueueWriteBuffer(buffer.handle, CL_TRUE, 0, storage.size()*sizeof(T), storage.data()));
+            CHECK(_ocl.writeQueue.enqueueWriteBuffer(buffer.handle, CL_TRUE, 0, storage.size()*sizeof(T), &storage[0]));
         } else {
-            CHECK(_ocl.queue.enqueueWriteBuffer(buffer.handle, CL_FALSE, 0, storage.size()*sizeof(T), storage.data()));
+            CHECK(_ocl.queue.enqueueWriteBuffer(buffer.handle, CL_FALSE, 0, storage.size()*sizeof(T), &storage[0]));
         }
     }
 
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, std::vector<T> &storage, bool blocking = false) {
-        if(storage.empty()) return;
+    template <class S>
+    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, S &storage, bool blocking = false) {
+        using T = typename S::value_type;
+        if(storage.size() == 0) return;
         if(storage.size() > buffer.elements) return;
         if(sizeof(T) != buffer.bytePerSample) return;
-        CHECK(queue.enqueueWriteBuffer(buffer.handle, blocking, 0, storage.size()*sizeof(T), storage.data()));
+        CHECK(queue.enqueueWriteBuffer(buffer.handle, blocking, 0, storage.size()*sizeof(T), &storage[0]));
     }
 
     /**
@@ -262,22 +262,22 @@ public:
      * @param storage vector where the values are copied
      * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
      */
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void getBuffer(const Buffer buffer, std::vector<T>& storage, const bool blocking = false) {
+    template <class S>
+    void getBuffer(const Buffer buffer, S &storage, const bool blocking = false) {
+        using T = typename S::value_type;
         storage.resize(buffer.elements);
         if(blocking) {
-            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, 0, buffer.elements*sizeof(T), storage.data()));
+            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, 0, buffer.elements*sizeof(T), &storage[0]));
         } else {
-            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, 0, buffer.elements*sizeof(T), storage.data()));
+            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, 0, buffer.elements*sizeof(T), &storage[0]));
         }
     }
 
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void getBuffer(cl::CommandQueue &queue, const Buffer buffer, std::vector<T>& storage, const bool blocking = false) {
+    template <class S>
+    void getBuffer(cl::CommandQueue &queue, const Buffer buffer, S &storage, const bool blocking = false) {
+        using T = typename S::value_type;
         storage.resize(buffer.elements);
-        CHECK(queue.enqueueReadBuffer(buffer.handle, blocking, 0, buffer.elements*sizeof(T), storage.data()));
+        CHECK(queue.enqueueReadBuffer(buffer.handle, blocking, 0, buffer.elements*sizeof(T), &storage[0]));
     }
 
     /**
@@ -289,14 +289,14 @@ public:
      * @param elements number of elements to copy
      * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
      */
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void getBuffer(const Buffer buffer, std::vector<T>& storage, uint64_t offset, uint64_t elements, const bool blocking = false) {
+    template <class S>
+    void getBuffer(const Buffer buffer, S &storage, uint64_t offset, uint64_t elements, const bool blocking = false) {
+        using T = typename S::value_type;
         storage.resize(buffer.elements);
         if(blocking) {
-            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, offset*sizeof(T), elements*sizeof(T), storage.data()));
+            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, offset*sizeof(T), elements*sizeof(T), &storage[0]));
         } else {
-            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, offset*sizeof(T), elements*sizeof(T), storage.data()));
+            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, offset*sizeof(T), elements*sizeof(T), &storage[0]));
         }
     }
 

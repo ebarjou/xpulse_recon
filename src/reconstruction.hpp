@@ -59,104 +59,6 @@ namespace reconstruction {
          */
         virtual void exec() = 0;
 
-        /**
-         * @brief Forward project the current volume and export the projections.
-         * 
-         */
-        void forward_exec() {
-            int32_t ASYNC_THREAD = 12;
-            std::cout << "Allocating requiered buffers..." << std::flush;
-
-            auto projData = prm_g.projection_matrices;
-            auto sumImagesBuffer = createBuffer<float>(prm_g.dwidth * prm_g.dheight * prm_g.concurrent_projections, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_READ);
-            
-            std::vector<reconstruction::gpu::Buffer> projDataBuffer, volumeBuffer;
-            for(int sit = 0; sit < prm_r.sit; ++sit) {
-                projDataBuffer.push_back(createBuffer(projData[sit], reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE));
-            }
-            for(int i = 0; i < ASYNC_THREAD; ++i) {
-                volumeBuffer.push_back(createBuffer<float>(prm_g.vwidth * prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE, WAVEFRONT_SIZE));
-                setBuffer(volumeBuffer[i], 0.0f);
-            }
-
-            wait();
-            std::cout << "Ok" << std::endl;
-            
-            setSumImagesBuffer(sumImagesBuffer);
-            setImageParameters(prm_g.dwidth, prm_g.dheight, prm_g.concurrent_projections);
-            setImageOffset({0, prm_g.dheight});
-            setAngleNumber(prm_g.concurrent_projections, prm_d.module_number);
-            
-            float weight = prm_r.weight;
-            int samples = 32;
-            #pragma omp parallel num_threads(ASYNC_THREAD)
-            {
-                for(int sit = 0; sit < prm_r.sit; ++sit) {
-                    setBuffer(sumImagesBuffer, FIXED_FRAC_ZERO);
-
-                    #pragma omp single
-                    {
-                        setProjDataBuffer(projDataBuffer[sit]);
-                    }
-
-                    for(int mit = 0; mit < samples; ++mit) {
-
-                        #pragma omp single
-                        {
-                            setOrigin(prm_g.orig, {prm_g.vx, prm_g.vx, prm_g.vx});
-                            std::cout << "Executing forward projection..." << (100*(mit*prm_r.sit+sit))/(samples*prm_r.sit) << "%" << "\r" << std::flush;
-                        }
-                        #pragma omp barrier
-
-                        #pragma omp for schedule(dynamic)
-                        for(int l = 0; l < prm_g.vheight; ++l) {
-                            const int tid = omp_get_thread_num();
-                            std::vector<float> layer = _dataset.getLayer(l);
-                            std::for_each(layer.begin(), layer.end(), [samples](float& v) { v /= samples;});
-                            for(int j = 0; j < prm_g.vwidth; ++j) {
-                                for(int i = 0; i < prm_g.vwidth; ++i) {
-                                    if( std::sqrtf(std::pow(i-prm_g.vwidth*0.5f, 2.0f)+std::pow(j-prm_g.vwidth*0.5f, 2.0f)) >= prm_g.vwidth*0.5f - 1.0f ) {
-                                        layer[j*prm_g.vwidth+i] = 0.0f;
-                                    }
-                                }
-                            }
-
-                            #pragma omp critical (write)
-                            {
-                                setBuffer(volumeBuffer[tid], layer, true);
-                            }
-
-                            #pragma omp critical (compute)
-                            {
-                                setVolumeBuffer(volumeBuffer[tid]);
-                                setVolumeParameters({0, l, 0}, {prm_g.vwidth, l+1, prm_g.vwidth}, {prm_g.vx, prm_g.vx, prm_g.vx});
-                                forward();
-                                wait();
-                            }
-                        }
-                    }
-
-                    #pragma omp single
-                    {
-                        //Save projections
-                        std::vector<fixed32> projections;
-                        getBuffer(sumImagesBuffer, projections, true);
-                        std::vector<float> processed_projections(projections.size());
-                        for(int i = 0; i < projections.size(); ++i) {
-                            processed_projections[i] = FIXED_TO_FLOAT(projections[i]);
-                        }
-                        int id = 0;
-                        for(int64_t l = sit; l < prm_g.projections; l += prm_r.sit) {
-                            _dataset.saveImage(std::vector(processed_projections.begin()+id*prm_g.dwidth*prm_g.dheight, processed_projections.begin()+(id+1)*prm_g.dwidth*prm_g.dheight), prm_g.dwidth, prm_g.dheight, l);
-                            ++id;
-                        }                        
-                    }
-                }
-            }
-            wait();
-            std::cout << "Executing forward projection..." << " Done." << std::endl;
-        }
-
     protected:
         /**
          * @brief Set the Buffer that will contains the images (should be initialized before the reconstruction).
@@ -316,6 +218,6 @@ namespace reconstruction {
     };
 
     #include "reconstruction/reconstruction_abs.hpp"
-    #include "reconstruction/reconstruction_hartmann.hpp"
-    #include "reconstruction/reconstruction_ipr.hpp"
+    //#include "reconstruction/reconstruction_hartmann.hpp"
+    //#include "reconstruction/reconstruction_ipr.hpp"
 }

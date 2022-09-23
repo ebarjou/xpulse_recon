@@ -29,12 +29,12 @@ public:
         int64_t imageSizeRAM = prm_g.concurrent_projections*singleImageSizeRAM;
         remainingRAM -= imageSizeRAM;
 
-        int64_t layerSizeRAM = prm_g.vwidth*prm_g.vwidth*sizeof(float);
+        int64_t layerSizeRAM = prm_g.vwidth*prm_g.vwidth*sizeof(uint16_t);
         if(remainingRAM > layerSizeRAM) {
             int64_t layersInRAM = std::min(remainingRAM/layerSizeRAM, prm_g.vheight);
             int64_t layersInRAMFrequency = prm_g.vheight/layersInRAM;
             layersInRAM = prm_g.vheight/layersInRAMFrequency;
-            _dataset.initialize(false, layersInRAMFrequency);  
+            _dataset.initialize(layersInRAMFrequency);  
         } else {
             throw new std::exception("Not enough RAM allocated");
         }
@@ -88,7 +88,7 @@ public:
     }
 
     void exec() {
-        std::vector<float> sumImages(prm_g.dwidth * prm_g.dheight * (prm_g.concurrent_projections+1));
+        std::valarray<float> sumImages(prm_g.dwidth * prm_g.dheight * (prm_g.concurrent_projections+1));
         
         float weight = prm_r.weight;
         auto projDataBuffer = createBuffer<float>(mvpPerLayer.mvp, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
@@ -111,7 +111,7 @@ public:
             #pragma omp single
             std::cout << "[CPU_THREADS] : " << omp_get_num_threads() << std::endl;
 
-            std::vector<float> volume(prm_g.vwidth * prm_g.vwidth);
+            std::valarray<float> volume(prm_g.vwidth * prm_g.vwidth);
             
             auto queue = createQueue();
 
@@ -175,28 +175,21 @@ public:
 
                         #pragma omp for
                         for(int64_t i = 0; i < sumImages.size(); ++i) {
-                            float* dst = sumImages.data();
-                            uint32_t* src = (uint32_t*)sumImages.data();
+                            float* dst = &sumImages[0];
+                            uint32_t* src = (uint32_t*)&sumImages[0];
                             dst[i] = FIXED_TO_FLOAT(src[i]);
                         }
                     } else {
-                        std::fill(sumImages.begin(), sumImages.end(), 1.0f);
+                        std::fill(std::begin(sumImages), std::end(sumImages), 1.0f);
                     }
                     #pragma omp for schedule(dynamic)
                     for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
-                        std::vector<float> image = _dataset.getImage(j);
                         int id = (j-sit)/prm_r.sit;
-
-                        float* dst = sumImages.data()+(id*prm_g.dwidth*prm_g.dheight);
-                        float* ref = image.data();
-
-                        int64_t imageSize = int64_t(image.size());
-                        for(int64_t i = 0; i < imageSize; ++i) {
-                            double reference = double(std::max(ref[i],EPSILON));
-                            double current_value = double(std::max(dst[i],EPSILON));
-                            double new_value = reference/current_value;
-                            dst[i] = float(new_value);
-                        }
+                        auto dst_slice = std::slice(id*prm_g.dwidth*prm_g.dheight, prm_g.dwidth*prm_g.dheight, 1);
+                        std::valarray<float> reference = _dataset.getImage(j);
+                        std::valarray<float> current_value = sumImages[dst_slice];
+                        current_value[current_value < EPSILON] = EPSILON;
+                        sumImages[dst_slice] = reference/current_value;
                     }
                     #pragma omp barrier
                     #pragma omp single

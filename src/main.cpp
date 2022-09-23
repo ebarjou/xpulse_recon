@@ -28,15 +28,14 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <gtx/rotate_vector.hpp>
 #include <gtc/type_ptr.hpp>
 #include <gtx/range.hpp>
-#include <tinytiffreader.h>
-#include <tinytiffwriter.h>
 #include <omp.h>
 #include <json_struct.h>
 #include <pocketfft_hdronly.h>
-#include <zstd.h>
+#include <tiffio.h>
 
 #include <iostream>
 #include <vector>
+#include <valarray>
 #include <algorithm>
 #include <type_traits>
 #include <fstream>
@@ -59,6 +58,14 @@ JS_ENUM_DECLARE_STRING_PARSER(MethodPhase);
 
 #include "reconstruction.hpp"
 
+void NoLibTIFFWarning(const char *, const char *, va_list) {
+    return;
+}
+
+void NoLibTIFFWarningExt(thandle_t, const char *, const char *, va_list) {
+    return;
+}
+
 void usage() {
     std::cout << "./hr_tomorecon -template|<json_file>|<json>" << std::endl;
     std::cout << "\t" << "-template : Output in stdout a default JSON file" << std::endl;
@@ -71,6 +78,10 @@ int main(int argc, char* argv[]) {
         usage();
         return RETURN_CODE_ERROR_ARGUMENTS;
     }
+
+    TIFFSetWarningHandler(NoLibTIFFWarning);
+    TIFFSetWarningHandlerExt(NoLibTIFFWarningExt);
+
     //If -template is given, generate the default JSON and print it to stdout
     if(std::string(argv[1]) == "-template") {
         reconstruction::dataset::Parameters parameters;
@@ -91,12 +102,12 @@ int main(int argc, char* argv[]) {
     reconstruction::Reconstruction *recon;
     try {
         switch (parameters.recon.method) {
-            case Method::hartmann:
+            /*case Method::hartmann:
                 recon = new reconstruction::ReconstructionHartmann(&parameters);
                 break;
             case Method::ipr:
                 recon = new reconstruction::ReconstructionIPR(&parameters);
-                break;
+                break;*/
             case Method::abs:
             default:
                 recon = new reconstruction::ReconstructionAbs(&parameters);
@@ -110,11 +121,6 @@ int main(int argc, char* argv[]) {
     if(parameters.recon.simulation == false) {
         //Execute the reconsturction
         recon->exec();
-    }
-
-    //If needed, execute the forward projection to save the projection of the volume
-    if(!parameters.recon.proj_output.empty()) {
-        recon->forward_exec();
     }
 
     //Clear reconstruction data

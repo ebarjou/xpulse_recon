@@ -31,7 +31,8 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <omp.h>
 #include <json_struct.h>
 #include <pocketfft_hdronly.h>
-#include <tiffio.h>
+#include <tinytiffreader.h>
+#include <tinytiffwriter.h>
 
 #include <iostream>
 #include <vector>
@@ -44,10 +45,13 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <random>
 #include <string>
 #include <vector>
+#include <set>
 #include <sstream>
 #include <future>
 #include <complex>
+#include <numeric>
 #include <math.h>
+#include <map>
 
 //Should be in parameters.hpp, but json_struct does not handle namepaces nicely
 JS_ENUM(Method, abs, hartmann, ipr);
@@ -57,14 +61,6 @@ JS_ENUM(MethodPhase, jacobi, gs, sor, simpson);
 JS_ENUM_DECLARE_STRING_PARSER(MethodPhase);
 
 #include "reconstruction.hpp"
-
-void NoLibTIFFWarning(const char *, const char *, va_list) {
-    return;
-}
-
-void NoLibTIFFWarningExt(thandle_t, const char *, const char *, va_list) {
-    return;
-}
 
 void usage() {
     std::cout << "./hr_tomorecon -template|<json_file>|<json>" << std::endl;
@@ -78,9 +74,6 @@ int main(int argc, char* argv[]) {
         usage();
         return RETURN_CODE_ERROR_ARGUMENTS;
     }
-
-    TIFFSetWarningHandler(NoLibTIFFWarning);
-    TIFFSetWarningHandlerExt(NoLibTIFFWarningExt);
 
     //If -template is given, generate the default JSON and print it to stdout
     if(std::string(argv[1]) == "-template") {

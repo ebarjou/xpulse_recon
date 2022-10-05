@@ -6,29 +6,36 @@
 #pragma once
 
 struct ImageFXP {
+    const static uint16_t MAX_STORAGE_VALUE = 65535;
     std::valarray<uint16_t> content;
     float min_value, max_value;
-    uint32_t width, height;
+    int64_t width, height;
 
-    ImageFXP() : content(), min_value(0), max_value(0) {};
-
-    ImageFXP(std::valarray<float> &float_content, uint32_t width, uint32_t height)
+    ImageFXP() : content(), min_value(0), max_value(0), width(0), height(0) {};
+    
+    ImageFXP(std::valarray<float> &float_content, int64_t width, int64_t height)
              : width(width), height(height) {
-        
-        const auto [min, max] = std::minmax_element(std::begin(float_content), std::end(float_content));
-        min_value = *min;
-        max_value = *max;
+        min_value = float_content.min();
+        max_value = float_content.max();
+        if(min_value == max_value) {
+            max_value += 1.0f;
+        }
         content = std::valarray<uint16_t>(width*height);
         for(int i = 0; i < width*height; ++i) {
-            content[i] = uint16_t( 65535.0f * ((float_content[i]-min_value)/(max_value-min_value)));
+            float normalized_value = (float_content[i]-min_value)/(max_value-min_value);
+            content[i] = uint16_t( MAX_STORAGE_VALUE * normalized_value);
         }
     }
 
-    ImageFXP(std::valarray<uint16_t> uint16_content, uint32_t width, uint32_t height, float min, float max)
-             : width(width), height(height)  {
-        min_value = min;
-        max_value = max;
-        content = std::valarray<uint16_t>(&uint16_content[0], width*height);
+    ImageFXP(std::valarray<uint16_t> &coded_content, int64_t width, int64_t height)
+             : width(width), height(height) {
+        content = std::valarray<uint16_t>(&coded_content[0], width*height);
+        float* values_tag = (float*)&content[0];
+        min_value = values_tag[0];
+        max_value = values_tag[1];
+        for(int i = 0; i < 4; ++i) {
+            content[i] = 0;
+        }
     }
 
     std::valarray<float> getFloatContent() {
@@ -36,15 +43,29 @@ struct ImageFXP {
         for(int i = 0; i < content.size(); ++i) {
             float_content[i] = float(content[i]);
         }
-        return (float_content/65535.0f)*(max_value-min_value) + min_value;
+        return (float_content/MAX_STORAGE_VALUE)*(max_value-min_value) + min_value;
+    }
+
+    void getFloatContent(float* dst) {
+        for(int i = 0; i < content.size(); ++i) {
+            dst[i] = (float(content[i])/MAX_STORAGE_VALUE)*(max_value-min_value) + min_value;
+        }
+    }
+
+    std::valarray<uint16_t> getCodedContent() {
+        std::valarray<uint16_t> coded_content(&content[0], width*height);
+        float* values_tag = (float*)&coded_content[0];
+        values_tag[0] = min_value;
+        values_tag[1] = max_value;
+        return coded_content;
     }
 
     uint16_t* data() {
         return &content[0];
     }
 
-    uint32_t size() {
-        return content.size();
+    int64_t size() {
+        return int64_t(content.size());
     }
 
     bool is_valid() {
@@ -58,7 +79,7 @@ struct ImageFXP {
  * 
  */
 class DataLoader {
-    Parameters *_parameters;
+    reconstruction::dataset::Parameters *_parameters;
     std::vector<std::string> _tiff_files;
     std::string _proj_folder;
 
@@ -66,7 +87,7 @@ class DataLoader {
     std::vector<ImageFXP> layerStorage;
 
 public:
-    DataLoader(Parameters *parameters, std::vector<std::string> tiff_files) : 
+    DataLoader(reconstruction::dataset::Parameters *parameters, std::vector<std::string> tiff_files) : 
         _parameters(parameters),
         _tiff_files(tiff_files)
     {
@@ -129,8 +150,10 @@ public:
      * @param data must be at least of size width*width
      * @param layer index of the layer, from top to bottom
      */
-    void saveLayer(std::valarray<float> image, int64_t layer, bool finalize = false) {
-        if(layer%layersInRAMFrequency == 0 && !finalize) {
+    void saveLayer(std::valarray<float> &image, int64_t layer, bool finalize = false) {
+        if(finalize) {
+            saveExternalTIFF(getOutputFilePath("layer", layer, "tif"), image, prm_g.vwidth, prm_g.vwidth);
+        } else if(layer%layersInRAMFrequency == 0) {
             layerStorage[layer] = ImageFXP(image, prm_g.vwidth, prm_g.vwidth);
         } else {
             saveTIFF(getOutputFilePath("layer", layer, "tif"), ImageFXP(image, prm_g.vwidth, prm_g.vwidth));
@@ -158,27 +181,25 @@ public:
     }
 
     bool checkTiffFile(std::string filename, uint16_t expected_format, uint32_t expected_width, uint32_t expected_height) {
-        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
-        if(!tiff) {
+        TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
+        if (!tiffr) { 
             throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
-        }
-        uint32_t width, height;
-        uint16_t format;
-        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
-        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
-        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
-        TIFFClose(tiff);
+        } 
+        const uint32_t width = TinyTIFFReader_getWidth(tiffr); 
+        const uint32_t height = TinyTIFFReader_getHeight(tiffr);
+        const uint16_t format = TinyTIFFReader_getSampleFormat(tiffr);
+        TinyTIFFReader_close(tiffr);
         return width == expected_width && height == expected_height && format == expected_format;
     }
 
     void getTiffFileSize(std::string filename, uint32_t &width, uint32_t &height) {
-        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
-        if(!tiff) {
+        TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
+        if (!tiffr) {
             throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
         }
-        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
-        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
-        TIFFClose(tiff);
+        width = TinyTIFFReader_getWidth(tiffr); 
+        height = TinyTIFFReader_getHeight(tiffr);
+        TinyTIFFReader_close(tiffr);
     }
 
 private:
@@ -207,83 +228,70 @@ private:
     }
 
     void saveTIFF(std::string filename, ImageFXP &image) {
-        TIFF *tiff = TIFFOpen(filename.c_str(), "w");
-        TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH, image.width); 
-        TIFFSetField(tiff, TIFFTAG_IMAGELENGTH, image.height); 
-        TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, 16); 
-        TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, 1); 
-        TIFFSetField(tiff, TIFFTAG_ROWSPERSTRIP, image.height);
-        TIFFSetField(tiff, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-        TIFFSetField(tiff, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-        TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
-        TIFFSetField(tiff, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
-        TIFFSetField(tiff, TIFFTAG_XPOSITION, image.max_value);
-        TIFFSetField(tiff, TIFFTAG_YPOSITION, image.min_value);
-        TIFFSetField(tiff, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
-        TIFFWriteRawStrip(tiff, 0, image.data(), image.size()*sizeof(uint16_t));
-        TIFFClose(tiff);
+        TinyTIFFWriterFile* tiffw=TinyTIFFWriter_open(filename.c_str(), 16, TinyTIFFWriter_UInt, 1, uint32_t(image.width), uint32_t(image.height), TinyTIFFWriter_Greyscale);
+        if (tiffw) {
+            auto coded_content = image.getCodedContent();
+            TinyTIFFWriter_writeImage(tiffw, &coded_content[0]);
+            TinyTIFFWriter_close(tiffw);
+        }
     }
 
     ImageFXP loadTIFF(std::string filename) {
-        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
-        if(!tiff) {
-            throw new std::exception((std::string("Internal TIFF file ") + filename + std::string(" does not exist.")).c_str());
+        TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
+        if (!tiffr) { 
+            throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
+        } else { 
+            const uint32_t width = TinyTIFFReader_getWidth(tiffr); 
+            const uint32_t height = TinyTIFFReader_getHeight(tiffr);
+            const uint16_t bps = TinyTIFFReader_getBitsPerSample(tiffr, 0);
+            const uint16_t format = TinyTIFFReader_getSampleFormat(tiffr);
+            if(format == TINYTIFF_SAMPLEFORMAT_UINT && bps == 16) {
+                std::valarray<uint16_t> values(width*height);	
+                TinyTIFFReader_getSampleData(tiffr, &values[0], 0);
+                TinyTIFFReader_close(tiffr);
+                return ImageFXP(values, width, height);
+            } else {
+                TinyTIFFReader_close(tiffr);
+                throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
+            }
         }
-        float min_value, max_value;
-        uint32_t width, height, rps;
-        uint16_t bps, spp, format;
-        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
-        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
-        TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bps); 
-        TIFFGetField(tiff, TIFFTAG_SAMPLESPERPIXEL, &spp);
-        TIFFGetField(tiff, TIFFTAG_ROWSPERSTRIP, &rps);
-        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
-        TIFFGetField(tiff, TIFFTAG_XPOSITION, &max_value);
-        TIFFGetField(tiff, TIFFTAG_YPOSITION, &min_value);
-        ImageFXP image;
-        if(format == SAMPLEFORMAT_UINT && bps == 16) {
-            std::valarray<uint16_t> values(width*height);
-            TIFFReadRawStrip(tiff, 0, &values[0], width*TIFFTAG_ROWSPERSTRIP*bps/8);
-            image = ImageFXP(values, width, height, min_value, max_value);
-        } else {
-            throw new std::exception("Unsupported TIFF format while attempting to read an internal TIFF file");
+    }
+
+    void saveExternalTIFF(std::string filename, std::valarray<float> &image, int64_t width, int64_t height) {
+        TinyTIFFWriterFile* tiffw=TinyTIFFWriter_open(filename.c_str(), 32, TinyTIFFWriter_Float, 1, uint32_t(width), uint32_t(height), TinyTIFFWriter_Greyscale);
+        if (tiffw) {
+            TinyTIFFWriter_writeImage(tiffw, &image[0]);
+            TinyTIFFWriter_close(tiffw);
         }
-        TIFFClose(tiff);
-        return image;
     }
 
     ImageFXP loadExternalTIFF(std::string filename) {
-        TIFF* tiff = TIFFOpen(filename.c_str(), "r");
-        if(!tiff) {
+        TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
+        if (!tiffr) { 
             throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
-        }
-        uint32_t width, height;
-        uint16_t bps, spp, format;
-        TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
-        TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
-        TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bps); 
-        TIFFGetField(tiff, TIFFTAG_SAMPLESPERPIXEL, &spp);
-        TIFFGetField(tiff, TIFFTAG_SAMPLEFORMAT, &format);
-        ImageFXP image;
-        if(format == SAMPLEFORMAT_IEEEFP && bps == 32) {
-            std::valarray<float> values(width*height);
-            for(int i = 0; i < height; i++) {
-                TIFFReadScanline(tiff, &values[0]+i*width, i);
+        } else { 
+            const uint32_t width = TinyTIFFReader_getWidth(tiffr); 
+            const uint32_t height = TinyTIFFReader_getHeight(tiffr);
+            const uint16_t bps = TinyTIFFReader_getBitsPerSample(tiffr, 0);
+            const uint16_t format = TinyTIFFReader_getSampleFormat(tiffr);
+            if(format == TINYTIFF_SAMPLEFORMAT_FLOAT && bps == 32) {
+                std::valarray<float> values(width*height);	
+                TinyTIFFReader_getSampleData(tiffr, &values[0], 0);
+                TinyTIFFReader_close(tiffr);
+                processExternalTIFF(values);
+                return ImageFXP(values, width, height);
+            } else {
+                TinyTIFFReader_close(tiffr);
+                throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
             }
-            TIFFClose(tiff);
-            processExternalTIFF(values);
-            image = ImageFXP(values, width, height);
-        } else {
-            TIFFClose(tiff);
-            throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
         }
-        return image;
     }
 
     void processExternalTIFF(std::valarray<float> &data) {
-        data[data<LARGE_EPSILON] = LARGE_EPSILON;
-        data[data>(1-LARGE_EPSILON)] = 1-LARGE_EPSILON;
+        const float epsilon = 1e-7f;
+        data[data<epsilon] = epsilon;
         if(prm_r.mlog) {
+            data[data>(1-epsilon)] = 1-epsilon;
             data = -std::log(data);
         }
     }

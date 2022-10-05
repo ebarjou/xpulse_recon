@@ -5,34 +5,22 @@
 
 #pragma once
 
-struct MvpPerLayer {
-    uint32_t maxAngles;
-    std::vector<std::vector<std::vector<uint16_t>>> mvp_indexes; //For each SIT, for each layer, the list of valid mvp index
-    std::vector<std::vector<std::vector<uint16_t>>> image_indexes; //For each SIT, for each layer, the list of image index
-    std::vector<float> mvp;
-};
-
-struct projData {
-    glm::mat4x4 m;
-    glm::vec4 v;
-};
-
 /**
  * @brief Class representing the geometry of the reconstruction
  * 
  */
 class Geometry {
 protected:
-    Parameters *_parameters;
-
+    reconstruction::dataset::Parameters *_parameters;
     glm::vec3 source_pos, source_at, object_center;
-    std::vector<glm::mat4x4> projection_matrices_mat4;
-    std::vector<glm::vec4> viewports_vec4;
-    std::vector<projData> projection_data;
-    std::vector<glm::vec2> projection_matrices_layer_minmax;
+public:
+    std::valarray<glm::mat4x4> mvpArray;
+    std::valarray<glm::tvec4<uint16_t>> vpArray;
+    std::valarray<uint16_t> imageIndexArray;
+    std::valarray<std::set<uint16_t>> mvpIndexPerLayers;
 
 public:
-    Geometry(Parameters *parameters) : 
+    Geometry(reconstruction::dataset::Parameters *parameters) : 
         _parameters(parameters)
     {
         std::cout << "Creating geometry..." << std::flush;
@@ -73,6 +61,40 @@ public:
 
         std::cout << "Volume dimension : " << prm_g.vwidth << "x" << prm_g.vheight << "x" << prm_g.vwidth << std::endl;
         std::cout << "Pixel size : " << prm_d.px << ", Voxel size : " << prm_g.vx << std::endl;
+    }
+
+    /**
+     * @brief Compute the projection matrix of each detector and each modules
+     * 
+     */
+    void computeMVPs(){
+        mvpArray.resize(prm_g.projections*prm_d.module_number);
+        vpArray.resize(prm_g.projections*prm_d.module_number);
+        imageIndexArray.resize(prm_g.projections*prm_d.module_number);
+        mvpIndexPerLayers.resize(prm_g.vheight);
+
+        uint64_t modw = prm_g.dwidth/prm_d.module_number;
+        #pragma omp parallel for
+        for(int64_t i = 0; i < prm_g.projections; ++i) { //For each projection angles
+            for(int64_t module_index = 0; module_index < prm_d.module_number; ++module_index) { //For each modules
+                uint64_t mvp_index = i*prm_d.module_number+module_index;
+                auto mvp = computeDetectorProjection(i, module_index);
+                glm::tvec4<uint16_t> vp = {uint16_t(modw*module_index), uint16_t(modw*(module_index+1)), 0, uint16_t(prm_g.dheight)};
+                mvpArray[mvp_index] = mvp;
+                vpArray[mvp_index] = vp;
+                imageIndexArray[mvp_index] = uint16_t(i);
+                for(int64_t l = 0; l < prm_g.vheight; ++l) { //For each layer
+                    glm::vec2 minmax = minmaxLayerProj(mvp, l);
+                    float min = minmax[0];
+                    float max = minmax[1];
+                    //If the layer projected by the mvp is within its vp, then add it 
+                    if( !(min >= vp[3] && max >= vp[3]) && !(min < vp[2] && max < vp[2]) ) {
+                        #pragma omp critical
+                        mvpIndexPerLayers[l].insert(uint16_t(mvp_index));
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -117,15 +139,6 @@ public:
     }
 
     /**
-     * @brief Get the Projection Matrices
-     * 
-     * @return std::vector<glm::mat4x4> 
-     */
-    std::vector<glm::mat4x4> getMatrices() {
-        return projection_matrices_mat4;
-    }
-
-    /**
      * @brief Project a point to the detector space for a given projection angle
      * 
      * @param point to project
@@ -136,34 +149,6 @@ public:
         glm::vec4 proj = point*mvp;
         glm::vec4 coord = proj/proj.w;
         return glm::vec2{coord.x, coord.y};
-    }
-
-    MvpPerLayer getMvpPerLayer() {
-        MvpPerLayer output;
-        output.maxAngles = 0;
-        float* mvp_data = (float*)projection_data.data();
-        output.mvp = std::vector(mvp_data, mvp_data+projection_data.size()*20);
-        for(int64_t sit = 0; sit < prm_r.sit; ++sit) { //For each sub-iterations
-            output.mvp_indexes.push_back(std::vector<std::vector<uint16_t>>(prm_g.vheight));
-            output.image_indexes.push_back(std::vector<std::vector<uint16_t>>(prm_g.vheight));
-            for(int64_t l = 0; l < prm_g.vheight; ++l) {
-                uint16_t sit_index = 0;
-                for(int64_t i = sit; i < prm_g.projections; i += prm_r.sit) { //For each angles of the current sub-iteration
-                    for(int64_t module_index = 0; module_index < prm_d.module_number; ++module_index) { //For each modules
-                        glm::vec2 minmax = minmaxLayerProj(projection_matrices_mat4[i], l);
-                        float min = minmax[0];
-                        float max = minmax[1];
-                        if( !(min >= viewports_vec4[i][3] && max >= viewports_vec4[i][3]) && !(min < viewports_vec4[i][2] && max < viewports_vec4[i][2]) ) {
-                            output.mvp_indexes[sit][l].push_back(uint16_t(i)); 
-                            output.image_indexes[sit][l].push_back(sit_index); 
-                        }
-                    }
-                    ++sit_index;
-                }
-                output.maxAngles = std::max(output.maxAngles, uint32_t(output.mvp_indexes[sit][l].size()));
-            }
-        }
-        return output;
     }
 
 private:
@@ -246,16 +231,11 @@ private:
         uint64_t height = prm_g.dheight;
 
         glm::vec3 detector = at-u*prm_d.sx-v*prm_d.sy;
-        // Offset for each modules
-        // + (prm_md[module].offset_x*u*prm_d.px + prm_md[module].offset_y*v*prm_d.px + prm_md[module].offset_z*n*prm_d.px);
-
+        
         glm::vec3 detector_ul = detector - u*(0.5f*width*prm_d.px) - v*(0.5f*height*prm_d.px);
         glm::vec3 detector_ur = detector_ul + u*(width*prm_d.px);
         glm::vec3 detector_bl = detector_ul + v*(height*prm_d.px);
 
-        /*detector_ul = rotate(detector_ul, detector, prm_md[module].yaw, prm_md[module].pitch, prm_md[module].roll, u, v, glm::normalize(at-pos));
-        detector_ur = rotate(detector_ur, detector, prm_md[module].yaw, prm_md[module].pitch, prm_md[module].roll, u, v, glm::normalize(at-pos));
-        detector_bl = rotate(detector_bl, detector, prm_md[module].yaw, prm_md[module].pitch, prm_md[module].roll, u, v, glm::normalize(at-pos));*/
         
         return std::make_tuple(detector_ul, detector_ur, detector_bl, detector);
     }
@@ -288,46 +268,10 @@ private:
     }
 
     /**
-     * @brief Compute the projection matrix of each detector and each modules
-     * 
-     */
-    void computeMVPs(){
-        projection_matrices_mat4.resize(prm_g.projections*prm_d.module_number);
-        viewports_vec4.resize(prm_g.projections*prm_d.module_number);
-        projection_data.resize(prm_g.projections*prm_d.module_number);
-
-        prm_g.projection_matrices.clear();
-        prm_g.projection_matrices.resize(prm_r.sit);
-
-        for(int64_t sit = 0; sit < prm_r.sit; ++sit) { //For each sub-iterations
-            for(int64_t i = sit; i < prm_g.projections; i += prm_r.sit) { //For each angles of the current sub-iteration
-                glm::vec2 min_max{prm_g.vheight, 0};
-                for(int64_t module_index = 0; module_index < prm_d.module_number; ++module_index) { //For each modules
-                    auto MVP = computeDetectorProjection(i, module_index);
-                    
-                    uint64_t width = prm_g.dwidth/prm_d.module_number;
-                    std::vector<float> vp = {float(width*module_index), float(width*(module_index+1)), 
-                                             0, float(prm_g.dheight)};
-
-                    projection_matrices_mat4[i*prm_d.module_number+module_index] = MVP;
-                    viewports_vec4[i*prm_d.module_number+module_index] = {vp[0],vp[1],vp[2],vp[3]};
-
-                    projection_data[i*prm_d.module_number+module_index].m = MVP;
-                    projection_data[i*prm_d.module_number+module_index].v = {vp[0],vp[1],vp[2],vp[3]};
-
-                    prm_g.projection_matrices[sit].insert(std::end(prm_g.projection_matrices[sit]), glm::begin(MVP), glm::end(MVP));
-                    prm_g.projection_matrices[sit].insert(std::end(prm_g.projection_matrices[sit]), std::begin(vp), std::end(vp));
-                    
-                }
-            }
-        }
-    }
-
-    /**
      * @brief 
      * 
      */
-    glm::ivec2 minmaxLayerProj(glm::mat4x4 mvp, uint32_t layer) {
+    glm::ivec2 minmaxLayerProj(glm::mat4x4 mvp, int64_t layer) {
         std::vector<glm::vec4> bounds{
             { prm_g.orig.x, prm_g.orig.y-1, -prm_g.orig.z, 1.0f},
             {-prm_g.orig.x, prm_g.orig.y-1, -prm_g.orig.z, 1.0f},

@@ -5,6 +5,7 @@
 
 namespace gpu {
     #include "gpu/error.hpp"
+    #include "gpu/kernel_recon.hpp"
     #include "gpu/context.hpp"
-    #include "gpu/kernel.hpp"
+    #include "gpu/program.hpp"
 }

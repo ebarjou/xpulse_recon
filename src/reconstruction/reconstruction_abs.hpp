@@ -5,24 +5,33 @@
 
 #pragma once
 
-std::string kernel_hforward_source = std::string(
-    #include "reconstruction/gpu/kernels/headers/KernelForwardH.hpp"
-);
-std::string kernel_hbackward_source = std::string(
-    #include "reconstruction/gpu/kernels/headers/KernelBackwardH.hpp"
+static const std::string kernel_recon_source(
+    #include "reconstruction/gpu/kernel_recon_str.hpp"
 );
 
 class ReconstructionAbs : public reconstruction::Reconstruction {
-    const uint32_t CPU_THREADS = 12;
-    const uint32_t VOLUME_BUFFERS = 4;
-    reconstruction::dataset::MvpPerLayer mvpPerLayer;
+    struct Layer{std::mutex m; reconstruction::gpu::Buffer b;};
+    static const uint32_t VOLUME_BUFFERS = 4;
+    static const uint32_t CPU_THREADS = VOLUME_BUFFERS*2;
+    static const int64_t FWD = 0;
+    static const int64_t BWD = 1;
+    reconstruction::gpu::Program _program;
+    std::vector<cl::CommandQueue> queue;
+    float _weight;
+    //GPU Buffers
+    reconstruction::gpu::Buffer imageBuffer, mvpBuffer, vpBuffer, mvpIndexBuffer, imageIndexBuffer;
+    Layer volumeBuffers[VOLUME_BUFFERS];
+    std::vector<reconstruction::gpu::Buffer> imageSubBuffer;
+    //RAM Buffers
+    std::valarray<float> imageArray[CPU_THREADS], refImageArray[CPU_THREADS], volumeArray[CPU_THREADS];
+    std::vector<std::valarray<uint16_t>> sit_image_set;
+    std::vector<std::vector<std::vector<uint16_t>>> layer_sit_mvp_indexes, layer_sit_image_indexes;
 
 public:
-    ReconstructionAbs(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), mvpPerLayer(_dataset.getGeometry()->getMvpPerLayer())
+    ReconstructionAbs(reconstruction::dataset::Parameters *parameters) : reconstruction::Reconstruction(parameters), 
+        _program(getOcl(), kernel_recon_source, std::vector<const char*>{"Forward", "Backward"}), 
+        _weight(prm_r.weight)
     {
-        if(requieredGPUMemory() > getOcl().memorySize) {
-            throw std::runtime_error("Not enough GPU memory");
-        }
         //RAM repartition
         int64_t remainingRAM = prm_r.usable_ram_go*1024*1024*1024;
         int64_t singleImageSizeRAM = prm_g.dheight*prm_g.dwidth*sizeof(float);
@@ -38,211 +47,210 @@ public:
         } else {
             throw new std::exception("Not enough RAM allocated");
         }
+
+        //VRAM Allocation
+        imageBuffer = createBuffer<float>(prm_g.dheight*prm_g.dwidth*prm_g.concurrent_projections, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW);
+        mvpBuffer = createBuffer(_dataset.getGeometry()->mvpArray, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
+        vpBuffer = createBuffer(_dataset.getGeometry()->vpArray, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
+        imageIndexBuffer = createBuffer<uint32_t>(16384, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
+        mvpIndexBuffer = createBuffer<uint32_t>(16384, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
+        for(int64_t i = 0; i < VOLUME_BUFFERS; ++i) {
+            volumeBuffers[i].b = createBuffer<float>(prm_g.vwidth*prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW);
+        }
+
+        //RAM Allocation
+        for(int64_t i = 0; i < CPU_THREADS; ++i) {
+            imageArray[i].resize(prm_g.dwidth * prm_g.dheight);
+            refImageArray[i].resize(prm_g.dwidth * prm_g.dheight);
+            volumeArray[i].resize(prm_g.vwidth * prm_g.vwidth);
+        }
+        //TODO vérifier les tailles CPU_THREADS vs VOLUME_BUFFERS en accès tableaux
+        //Allouer toute la memoire nécessaire ici
+
+        for(int64_t i = 0; i < CPU_THREADS; ++i) {
+            queue.push_back(createQueue());
+        }
+
+        for(int64_t i = 0; i < 2; ++i) {
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_SUMIMAGE_BUFFER, imageBuffer);
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_MVP_BUFFER, mvpBuffer);
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_VP_BUFFER, vpBuffer);
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_IMGINDEX_BUFFER, imageIndexBuffer);
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_MVPINDEX_BUFFER, mvpIndexBuffer);
+            
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_VOXEL_SIZE_F, prm_g.vx);
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_DETWIDTH_U, uint32_t(prm_g.dwidth));
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_DETHEIGHT_U, uint32_t(prm_g.dheight));
+            _program.setKernelArgument(i, reconstruction::gpu::INDEX_VOLWIDTH_U, uint32_t(prm_g.vwidth));
+            _program.setProgramSize(prm_g.vwidth, prm_g.vwidth);
+        }
+
+        prepareImageSets();
     }
 
-    uint64_t requieredGPUMemory() {
-        int64_t indexSize = mvpPerLayer.maxAngles*CPU_THREADS*sizeof(uint16_t)*2;
-        int64_t volumeSize = prm_g.vwidth*prm_g.vwidth*VOLUME_BUFFERS*sizeof(float);
-        int64_t mvpSize = prm_g.projection_matrices[0].size()*sizeof(float);
-        int64_t imageSize = prm_g.dheight*prm_g.dwidth*(prm_g.concurrent_projections+1)*sizeof(float);
-        
-        int64_t totalGPUSizeByte = indexSize+mvpSize+volumeSize+imageSize;
-        std::cout << "Checking GPU memory requierments : " << totalGPUSizeByte/(1024*1024) << "Mo" << std::endl;
-        return totalGPUSizeByte;
-    }
+    void prepareImageSets() {
+        sit_image_set.resize(prm_r.sit);
+        for(int64_t sit = 0; sit < prm_r.sit; ++sit) {
+            sit_image_set[sit].resize(prm_g.concurrent_projections);
+            for(int64_t i = 0; i < prm_g.concurrent_projections; ++i) {
+                //Ici : check si l'id rentre dans un short, sinon except ?
+                sit_image_set[sit][i] = uint16_t((sit+i*prm_r.sit)%prm_g.projections);
+            }
+        }
 
-    void initBKWParameters(reconstruction::gpu::Kernel &kernel, 
-                                reconstruction::gpu::Buffer volumeBuffer, 
-                                reconstruction::gpu::Buffer sumImagesBuffer, 
-                                reconstruction::gpu::Buffer indexBuffer, 
-                                reconstruction::gpu::Buffer imgIndexBuffer, 
-                                reconstruction::gpu::Buffer projDataBuffer) {
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLUME_BUFFER, volumeBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_INDEX_BUFFER, indexBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_IMGINDEX_BUFFER, imgIndexBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_PROJDATA_BUFFER, projDataBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_VOXEL_SIZE_F, prm_g.vx);
-        kernel.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
-    }
+        layer_sit_mvp_indexes.resize(prm_g.vheight);
+        layer_sit_image_indexes.resize(prm_g.vheight);
+        #pragma omp parallel for
+        for(int l = 0; l < prm_g.vheight; ++l) {
+            layer_sit_mvp_indexes[l].resize(prm_r.sit);
+            layer_sit_image_indexes[l].resize(prm_r.sit);
 
-    void initFWDParameters(reconstruction::gpu::Kernel &kernel, 
-                                reconstruction::gpu::Buffer volumeBuffer, 
-                                reconstruction::gpu::Buffer sumImagesBuffer, 
-                                reconstruction::gpu::Buffer indexBuffer, 
-                                reconstruction::gpu::Buffer imgIndexBuffer, 
-                                reconstruction::gpu::Buffer projDataBuffer) {
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLUME_BUFFER, volumeBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_SUMIMAGE_BUFFER, sumImagesBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_INDEX_BUFFER, indexBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_IMGINDEX_BUFFER, imgIndexBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_PROJDATA_BUFFER, projDataBuffer);
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETWIDTH_U, uint32_t(prm_g.dwidth));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_DETHEIGHT_U, uint32_t(prm_g.dheight));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOLWIDTH_U, uint32_t(prm_g.vwidth));
-        kernel.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_VOXEL_SIZE_F, prm_g.vx);
-        kernel.setKernelSizeX(prm_g.vwidth * prm_g.vwidth);
+            //mvp de la layer courante
+            auto mvpIndexPerLayers = _dataset.getGeometry()->mvpIndexPerLayers[l];
+            std::vector<uint16_t> current_layer_mvp_index(std::begin(mvpIndexPerLayers), std::end(mvpIndexPerLayers));
+
+            for(int64_t sit = 0; sit < prm_r.sit; ++sit) {
+                for(int64_t i = 0; i < int64_t(current_layer_mvp_index.size()); ++i) {
+                    //Id de l'image correspondant au mvp
+                    uint16_t global_image_id = _dataset.getGeometry()->imageIndexArray[current_layer_mvp_index[i]];
+                    //Position de cet image dans le set d'image de la sit
+                    auto index_in_current_set = std::find(std::begin(sit_image_set[sit]), std::end(sit_image_set[sit]), global_image_id);
+                    //Si l'image est présente
+                    if(index_in_current_set != std::end(sit_image_set[sit])) {
+                        //On sauvegarde l'index du mvp et de l'image
+                        uint16_t local_image_id = uint16_t(index_in_current_set - std::begin(sit_image_set[sit]));
+                        layer_sit_mvp_indexes[l][sit].push_back(current_layer_mvp_index[i]);
+                        layer_sit_image_indexes[l][sit].push_back(local_image_id);
+                    }
+                }
+            }
+        }
     }
 
     void exec() {
-        std::valarray<float> sumImages(prm_g.dwidth * prm_g.dheight * (prm_g.concurrent_projections+1));
-        
-        float weight = prm_r.weight;
-        auto projDataBuffer = createBuffer<float>(mvpPerLayer.mvp, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_NONE);
-        auto sumImagesBuffer = createBuffer<float>(prm_g.dheight*prm_g.dwidth*(prm_g.concurrent_projections+1), reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW);
-        setBuffer(sumImagesBuffer, 1.0, true);
-
-        struct layers{std::mutex m; reconstruction::gpu::Buffer b;};
-        std::vector<layers> volumeBuffers(VOLUME_BUFFERS);
-        for(int64_t i = 0; i < VOLUME_BUFFERS; ++i) {
-            volumeBuffers[i].b = createBuffer<float>(prm_g.vwidth * prm_g.vwidth, reconstruction::gpu::MEM_ACCESS_RW, reconstruction::gpu::MEM_ACCESS_RW, WAVEFRONT_SIZE);
-        }
-        glm::vec3 offset{0,0,0};
-
-        omp_set_nested(0);
+        //omp_set_nested(0);
         #pragma omp parallel num_threads(CPU_THREADS)
         {
             int tid = omp_get_thread_num();
             int vid = tid%VOLUME_BUFFERS;
-
+            
             #pragma omp single
             std::cout << "[CPU_THREADS] : " << omp_get_num_threads() << std::endl;
 
-            std::valarray<float> volume(prm_g.vwidth * prm_g.vwidth);
-            
-            auto queue = createQueue();
-
-            auto indexBuffer = createBuffer<uint16_t>(mvpPerLayer.maxAngles, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
-            auto imgIndexBuffer = createBuffer<uint16_t>(mvpPerLayer.maxAngles, reconstruction::gpu::MEM_ACCESS_READ, reconstruction::gpu::MEM_ACCESS_WRITE);
-            
-            reconstruction::gpu::Kernel backwardh(getOcl(), kernel_hbackward_source, "BackwardH");
-            initBKWParameters(backwardh, volumeBuffers[vid].b, sumImagesBuffer, indexBuffer, imgIndexBuffer, projDataBuffer);
-
-            reconstruction::gpu::Kernel forwardh(getOcl(), kernel_hforward_source, "ForwardH");
-            initFWDParameters(forwardh, volumeBuffers[vid].b, sumImagesBuffer, indexBuffer, imgIndexBuffer, projDataBuffer);
-
-            for(int mit = 0; mit < prm_r.it; ++mit) {
+            for(int64_t mit = 0; mit < prm_r.it; ++mit) {
                 #pragma omp single
-                setWeight(weight);
-                
-                for(int sit = 0; sit < prm_r.sit; ++sit) {
+                {
+                    _program.setKernelArgument(BWD, reconstruction::gpu::INDEX_WEIGHT_F, _weight);
+                    _program.setKernelArgument(FWD, reconstruction::gpu::INDEX_WEIGHT_F, _weight);
+                    _weight *= prm_r.weight_factor;
+                }
+
+                for(int64_t sit = 0; sit < prm_r.sit; ++sit) {
                     #pragma omp single
                     {
                         std::cout << "Executing reconstruction..." << (100*(mit*prm_r.sit+sit))/(prm_r.it*prm_r.sit) << "%" << "\r" << std::flush;
-                        offset = getRandomizedOffset();
+                        glm::vec3 offset = getRandomizedOffset();
+                        _program.setKernelArgument(BWD, reconstruction::gpu::INDEX_ORIGIN_F4, glm::vec4(prm_g.orig+offset, 1.0f));
+                        _program.setKernelArgument(FWD, reconstruction::gpu::INDEX_ORIGIN_F4, glm::vec4(prm_g.orig+offset, 1.0f));
                     }
-                    setOrigin(backwardh, reconstruction::gpu::INDEX_HBACKWARD_ORIGIN_F4, prm_g.orig, offset);
-                    setOrigin(forwardh, reconstruction::gpu::INDEX_HFORWARD_ORIGIN_F4, prm_g.orig, offset);
 
                     //Forward
                     if(sit > 0 || mit > 0) {
                         #pragma omp single
-                        {
-                            setBuffer(queue, sumImagesBuffer, 0);
-                            wait(queue);
-                        }
+                        setBuffer(queue[tid], imageBuffer, 0, true);
+
                         #pragma omp for schedule(dynamic)
                         for(int l = 0; l < prm_g.vheight; ++l) {
-                            volume = _dataset.getLayer(l);
+                            volumeArray[tid] = _dataset.getLayer(l);
 
-                            setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]);
-                            setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]);
-                            
                             volumeBuffers[vid].m.lock();
-
-                            setBuffer(queue, volumeBuffers[vid].b, volume, true);
-                            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_ANGLES_U, uint32_t(mvpPerLayer.mvp_indexes[sit][l].size()));
-                            forwardh.setKernelArgument(reconstruction::gpu::INDEX_HFORWARD_YOFFSET_U, uint32_t(l));
-                            forwardh.executeKernel(queue);
-                            
-                            queue.flush();
-                            //Equivalent to finish, but not busy
-                            setBuffer(queue, indexBuffer, std::vector<uint16_t>(2), true);
-
-                            volumeBuffers[vid].m.unlock();   
+                            setBuffer(queue[tid], volumeBuffers[vid].b, 0, volumeArray[tid], 0, prm_g.dwidth*prm_g.dwidth, true);
+                            #pragma omp critical
+                            {
+                                setBuffer(queue[tid], mvpIndexBuffer, 0, layer_sit_mvp_indexes[l][sit], 0, layer_sit_mvp_indexes[l][sit].size(), false);
+                                setBuffer(queue[tid], imageIndexBuffer, 0, layer_sit_image_indexes[l][sit], 0, layer_sit_image_indexes[l][sit].size(), false);
+                                _program.setKernelArgument(FWD, reconstruction::gpu::INDEX_VOLUME_BUFFER, volumeBuffers[vid].b);
+                                _program.setKernelArgument(FWD, reconstruction::gpu::INDEX_ANGLES_U, uint32_t(layer_sit_mvp_indexes[l][sit].size()));
+                                _program.setProgramOffset(0, 0, l);
+                                _program.executeKernel(queue[tid], FWD);
+                                queue[tid].flush();
+                                //Equivalent to finish, but not busy
+                                setBuffer(queue[tid], mvpIndexBuffer, 0, std::vector<uint16_t>(2), 0, 2, true);
+                            }
+                            volumeBuffers[vid].m.unlock();                               
                         }
+                        #pragma omp barrier
                     }
-                    wait(queue);
-                    #pragma omp barrier
+
+                    #pragma omp single
+                    std::cout << "[" << tid << "] - [" << vid << "] - " << "Start error" << std::endl;
 
                     //Error
-                    if(sit > 0 || mit > 0) {
-                        #pragma omp single
-                        getBuffer(queue, sumImagesBuffer, sumImages, true);
-
-                        #pragma omp for
-                        for(int64_t i = 0; i < sumImages.size(); ++i) {
-                            float* dst = &sumImages[0];
-                            uint32_t* src = (uint32_t*)&sumImages[0];
-                            dst[i] = FIXED_TO_FLOAT(src[i]);
+                    //#pragma omp for schedule(dynamic)
+                    #pragma omp single
+                    for(int64_t i = 0; i < int64_t(sit_image_set[sit].size()); ++i) {    
+                        if(sit > 0 || mit > 0) {
+                            getBuffer(queue[tid], imageBuffer, i*prm_g.dwidth*prm_g.dheight, imageArray[tid], 0, prm_g.dwidth*prm_g.dheight, true);
+                            float* dst = &imageArray[tid][0];
+                            uint32_t* src = (uint32_t*)&imageArray[tid][0];
+                            for(int64_t j = 0; j < int64_t(imageArray[tid].size()); ++j) {
+                                dst[j] = FIXED_TO_FLOAT(src[j]);
+                            }
+                        } else {
+                            imageArray[tid] = 1.0f;
                         }
-                    } else {
-                        std::fill(std::begin(sumImages), std::end(sumImages), 1.0f);
-                    }
-                    #pragma omp for schedule(dynamic)
-                    for(int j = sit; j < prm_g.projections; j += prm_r.sit) {
-                        int id = (j-sit)/prm_r.sit;
-                        auto dst_slice = std::slice(id*prm_g.dwidth*prm_g.dheight, prm_g.dwidth*prm_g.dheight, 1);
-                        std::valarray<float> reference = _dataset.getImage(j);
-                        std::valarray<float> current_value = sumImages[dst_slice];
-                        current_value[current_value < EPSILON] = EPSILON;
-                        sumImages[dst_slice] = reference/current_value;
+                        _dataset.getImage(sit_image_set[sit][i], refImageArray[tid]);
+                        
+                        imageArray[tid][imageArray[tid] < EPSILON] = EPSILON;
+                        imageArray[tid] = refImageArray[tid]/imageArray[tid];
+                        setBuffer(queue[tid], imageBuffer, i*prm_g.dwidth*prm_g.dheight, imageArray[tid], 0, prm_g.dwidth*prm_g.dheight, true);
                     }
                     #pragma omp barrier
-                    #pragma omp single
-                    setBuffer(queue, sumImagesBuffer, sumImages, true);
 
+                    #pragma omp single
+                    std::cout << "[" << tid << "] - [" << vid << "] - " << "End error" << std::endl;
+                    
                     //Backward
                     #pragma omp for schedule(dynamic)
-                    for(int l = 0; l < prm_g.vheight; ++l) {                        
+                    for(int64_t l = 0; l < prm_g.vheight; ++l) {    
+                        #pragma omp critical (cout) 
+                        std::cout << "[" << tid << "] - [" << vid << "] - " << "Start layer " << l << std::endl;                   
                         if(sit > 0 || mit > 0) {
-                            volume = _dataset.getLayer(l);
-                            volumeBuffers[vid].m.lock();
-                            setBuffer(queue, volumeBuffers[vid].b, volume);
+                            volumeArray[tid] = _dataset.getLayer(l);
                         } else {
-                            volumeBuffers[vid].m.lock();
-                            setBuffer(queue, volumeBuffers[vid].b, 1.0f/(float)std::sqrt(prm_g.vwidth*prm_g.vwidth));
+                            volumeArray[tid] = 1.0f/(prm_g.vwidth*prm_g.vwidth);
                         }
 
-                        setBuffer(queue, indexBuffer, mvpPerLayer.mvp_indexes[sit][l]); 
-                        setBuffer(queue, imgIndexBuffer, mvpPerLayer.image_indexes[sit][l]); 
-                        backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_WEIGHT_F, weight);
-                        backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_ANGLES_U, uint32_t(mvpPerLayer.mvp_indexes[sit][l].size()));
-                        backwardh.setKernelArgument(reconstruction::gpu::INDEX_HBACKWARD_YOFFSET_U, uint32_t(l));
-                        backwardh.executeKernel(queue);
-                        queue.flush();
-
-                        getBuffer(queue, volumeBuffers[vid].b, volume, true);
+                        volumeBuffers[vid].m.lock();
+                        #pragma omp critical (cout)
+                        std::cout << "[" << tid << "] - [" << vid << "] - " << "locked layer" << std::endl;
+                        setBuffer(queue[tid], volumeBuffers[vid].b, 0, volumeArray[tid], 0, prm_g.dwidth*prm_g.dwidth, true);
+                        #pragma omp critical
+                        {
+                            #pragma omp critical (cout)
+                            std::cout << "[" << tid << "] - [" << vid << "] - " << "critical section" << std::endl;
+                            setBuffer(queue[tid], mvpIndexBuffer, 0, layer_sit_mvp_indexes[l][sit], 0, layer_sit_mvp_indexes[l][sit].size(), false);
+                            setBuffer(queue[tid], imageIndexBuffer, 0, layer_sit_image_indexes[l][sit], 0, layer_sit_image_indexes[l][sit].size(), false);
+                            _program.setKernelArgument(BWD, reconstruction::gpu::INDEX_VOLUME_BUFFER, volumeBuffers[vid].b);
+                            _program.setKernelArgument(BWD, reconstruction::gpu::INDEX_ANGLES_U, uint32_t(layer_sit_mvp_indexes[l][sit].size()));
+                            _program.setProgramOffset(0, 0, l);
+                            _program.executeKernel(queue[tid], BWD);
+                            queue[tid].flush();
+                            queue[tid].finish();
+                        }
+                        getBuffer(queue[tid], volumeBuffers[vid].b, 0, volumeArray[tid], 0, prm_g.vwidth*prm_g.vwidth, true);
                         volumeBuffers[vid].m.unlock();
+                        #pragma omp critical (cout)
+                        std::cout << "[" << tid << "] - [" << vid << "] - " << "unlocked layer" << std::endl;
 
-                        _dataset.saveLayer(volume, l, ((sit==prm_r.sit-1) && (mit == prm_r.it-1)));
+                        _dataset.saveLayer(volumeArray[tid], l, ((sit==prm_r.sit-1) && (mit == prm_r.it-1)));
+                        #pragma omp critical (cout)
+                        std::cout << "[" << tid << "] - [" << vid << "] - " << "layer done" << std::endl;
                     }
-
                     #pragma omp barrier
                 }
-
-                #pragma omp single
-                weight *= prm_r.weight_factor;
             }
         }
-        wait();
         std::cout << "Executing reconstruction..." << " Done." << std::endl;
-    }
-    
-private:
-    glm::vec3 getRandomizedOffset() {
-        glm::vec3 offset{0,0,0};
-        for(int i = 0; i < 3; ++i) {
-            offset[i] += std::uniform_real_distribution<float>(0, prm_g.vx)(_randomEngine);
-        }
-        return offset;
-    }
-
-    void setOrigin(reconstruction::gpu::Kernel &kernel, int64_t param_index, glm::vec3 origin, glm::vec3 offset) {
-        origin += offset;
-        kernel.setKernelArgument(param_index, cl_float4{origin.x, origin.y, origin.z, 1.0f});
     }
 };

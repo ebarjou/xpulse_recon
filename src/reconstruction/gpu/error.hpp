@@ -6,13 +6,78 @@
 #pragma once
 
 /**
- * Class providing debug function and macro for OpenCL
+ * Provide debug function and macro for OpenCL
  */
 
-#include <string>
-#include <CL/opencl.hpp>
-
-std::string getErrorString(cl_int error);
+static const std::map<cl_int, std::string> cl_error_str{
+    { 0, "CL_SUCCESS"},
+    { -1, "CL_DEVICE_NOT_FOUND"},
+    { -2, "CL_DEVICE_NOT_AVAILABLE"},
+    { -3, "CL_COMPILER_NOT_AVAILABLE"},
+    { -4, "CL_MEM_OBJECT_ALLOCATION_FAILURE"},
+    { -5, "CL_OUT_OF_RESOURCES"},
+    { -6, "CL_OUT_OF_HOST_MEMORY"},
+    { -7, "CL_PROFILING_INFO_NOT_AVAILABLE"},
+    { -8, "CL_MEM_COPY_OVERLAP"},
+    { -9, "CL_IMAGE_FORMAT_MISMATCH"},
+    { -10, "CL_IMAGE_FORMAT_NOT_SUPPORTED"},
+    { -11, "CL_BUILD_PROGRAM_FAILURE"},
+    { -12, "CL_MAP_FAILURE"},
+    { -13, "CL_MISALIGNED_SUB_BUFFER_OFFSET"},
+    { -14, "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST"},
+    { -15, "CL_COMPILE_PROGRAM_FAILURE"},
+    { -16, "CL_LINKER_NOT_AVAILABLE"},
+    { -17, "CL_LINK_PROGRAM_FAILURE"},
+    { -18, "CL_DEVICE_PARTITION_FAILED"},
+    { -19, "CL_KERNEL_ARG_INFO_NOT_AVAILABLE"},
+    // program compile-time error
+    { -30, "CL_INVALID_VALUE"},
+    { -31, "CL_INVALID_DEVICE_TYPE"},
+    { -32, "CL_INVALID_PLATFORM"},
+    { -33, "CL_INVALID_DEVICE"},
+    { -34, "CL_INVALID_CONTEXT"},
+    { -35, "CL_INVALID_QUEUE_PROPERTIES"},
+    { -36, "CL_INVALID_COMMAND_QUEUE"},
+    { -37, "CL_INVALID_HOST_PTR"},
+    { -38, "CL_INVALID_MEM_OBJECT"},
+    { -39, "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR"},
+    { -40, "CL_INVALID_IMAGE_SIZE"},
+    { -41, "CL_INVALID_SAMPLER"},
+    { -42, "CL_INVALID_BINARY"},
+    { -43, "CL_INVALID_BUILD_OPTIONS"},
+    { -44, "CL_INVALID_PROGRAM"},
+    { -45, "CL_INVALID_PROGRAM_EXECUTABLE"},
+    { -46, "CL_INVALID_KERNEL_NAME"},
+    { -47, "CL_INVALID_KERNEL_DEFINITION"},
+    { -48, "CL_INVALID_KERNEL"},
+    { -49, "CL_INVALID_ARG_INDEX"},
+    { -50, "CL_INVALID_ARG_VALUE"},
+    { -51, "CL_INVALID_ARG_SIZE"},
+    { -52, "CL_INVALID_KERNEL_ARGS"},
+    { -53, "CL_INVALID_WORK_DIMENSION"},
+    { -54, "CL_INVALID_WORK_GROUP_SIZE"},
+    { -55, "CL_INVALID_WORK_ITEM_SIZE"},
+    { -56, "CL_INVALID_GLOBAL_OFFSET"},
+    { -57, "CL_INVALID_EVENT_WAIT_LIST"},
+    { -58, "CL_INVALID_EVENT"},
+    { -59, "CL_INVALID_OPERATION"},
+    { -60, "CL_INVALID_GL_OBJECT"},
+    { -61, "CL_INVALID_BUFFER_SIZE"},
+    { -62, "CL_INVALID_MIP_LEVEL"},
+    { -63, "CL_INVALID_GLOBAL_WORK_SIZE"},
+    { -64, "CL_INVALID_PROPERTY"},
+    { -65, "CL_INVALID_IMAGE_DESCRIPTOR"},
+    { -66, "CL_INVALID_COMPILER_OPTIONS"},
+    { -67, "CL_INVALID_LINKER_OPTIONS"},
+    { -68, "CL_INVALID_DEVICE_PARTITION_COUNT"},
+    // other (extensions)
+    { -1000, "CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR"},
+    { -1001, "CL_PLATFORM_NOT_FOUND_KHR"},
+    { -1002, "CL_INVALID_D3D10_DEVICE_KHR"},
+    { -1003, "CL_INVALID_D3D10_RESOURCE_KHR"},
+    { -1004, "CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR"},
+    { -1005, "CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR"}
+};
 
 #ifdef DISABLED_NDEBUG
     #define CHECK(FUNC) FUNC;
@@ -20,82 +85,8 @@ std::string getErrorString(cl_int error);
     #define CHECK(FUNC) {\
         cl_int _errorCode = FUNC;\
         if(_errorCode != CL_SUCCESS) {\
-            std::cerr << #FUNC << " : " << getErrorString(FUNC) << std::endl << std::flush;\
-            throw std::runtime_error(getErrorString(FUNC)); \
+            throw std::runtime_error(cl_error_str.at(_errorCode)); \
         }\
     }
 #endif
-
-std::string getErrorString(cl_int error_code) {
-    switch(error_code){
-        // plain opencl error
-        case 0: return "CL_SUCCESS";
-        case -1: return "CL_DEVICE_NOT_FOUND";
-        case -2: return "CL_DEVICE_NOT_AVAILABLE";
-        case -3: return "CL_COMPILER_NOT_AVAILABLE";
-        case -4: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
-        case -5: return "CL_OUT_OF_RESOURCES";
-        case -6: return "CL_OUT_OF_HOST_MEMORY";
-        case -7: return "CL_PROFILING_INFO_NOT_AVAILABLE";
-        case -8: return "CL_MEM_COPY_OVERLAP";
-        case -9: return "CL_IMAGE_FORMAT_MISMATCH";
-        case -10: return "CL_IMAGE_FORMAT_NOT_SUPPORTED";
-        case -11: return "CL_BUILD_PROGRAM_FAILURE";
-        case -12: return "CL_MAP_FAILURE";
-        case -13: return "CL_MISALIGNED_SUB_BUFFER_OFFSET";
-        case -14: return "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST";
-        case -15: return "CL_COMPILE_PROGRAM_FAILURE";
-        case -16: return "CL_LINKER_NOT_AVAILABLE";
-        case -17: return "CL_LINK_PROGRAM_FAILURE";
-        case -18: return "CL_DEVICE_PARTITION_FAILED";
-        case -19: return "CL_KERNEL_ARG_INFO_NOT_AVAILABLE";
-        // program compile-time error
-        case -30: return "CL_INVALID_VALUE";
-        case -31: return "CL_INVALID_DEVICE_TYPE";
-        case -32: return "CL_INVALID_PLATFORM";
-        case -33: return "CL_INVALID_DEVICE";
-        case -34: return "CL_INVALID_CONTEXT";
-        case -35: return "CL_INVALID_QUEUE_PROPERTIES";
-        case -36: return "CL_INVALID_COMMAND_QUEUE";
-        case -37: return "CL_INVALID_HOST_PTR";
-        case -38: return "CL_INVALID_MEM_OBJECT";
-        case -39: return "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR";
-        case -40: return "CL_INVALID_IMAGE_SIZE";
-        case -41: return "CL_INVALID_SAMPLER";
-        case -42: return "CL_INVALID_BINARY";
-        case -43: return "CL_INVALID_BUILD_OPTIONS";
-        case -44: return "CL_INVALID_PROGRAM";
-        case -45: return "CL_INVALID_PROGRAM_EXECUTABLE";
-        case -46: return "CL_INVALID_KERNEL_NAME";
-        case -47: return "CL_INVALID_KERNEL_DEFINITION";
-        case -48: return "CL_INVALID_KERNEL";
-        case -49: return "CL_INVALID_ARG_INDEX";
-        case -50: return "CL_INVALID_ARG_VALUE";
-        case -51: return "CL_INVALID_ARG_SIZE";
-        case -52: return "CL_INVALID_KERNEL_ARGS";
-        case -53: return "CL_INVALID_WORK_DIMENSION";
-        case -54: return "CL_INVALID_WORK_GROUP_SIZE";
-        case -55: return "CL_INVALID_WORK_ITEM_SIZE";
-        case -56: return "CL_INVALID_GLOBAL_OFFSET";
-        case -57: return "CL_INVALID_EVENT_WAIT_LIST";
-        case -58: return "CL_INVALID_EVENT";
-        case -59: return "CL_INVALID_OPERATION";
-        case -60: return "CL_INVALID_GL_OBJECT";
-        case -61: return "CL_INVALID_BUFFER_SIZE";
-        case -62: return "CL_INVALID_MIP_LEVEL";
-        case -63: return "CL_INVALID_GLOBAL_WORK_SIZE";
-        case -64: return "CL_INVALID_PROPERTY";
-        case -65: return "CL_INVALID_IMAGE_DESCRIPTOR";
-        case -66: return "CL_INVALID_COMPILER_OPTIONS";
-        case -67: return "CL_INVALID_LINKER_OPTIONS";
-        case -68: return "CL_INVALID_DEVICE_PARTITION_COUNT";
-        // other (extensions)
-        case -1000: return "CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR";
-        case -1001: return "CL_PLATFORM_NOT_FOUND_KHR";
-        case -1002: return "CL_INVALID_D3D10_DEVICE_KHR";
-        case -1003: return "CL_INVALID_D3D10_RESOURCE_KHR";
-        case -1004: return "CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR";
-        case -1005: return "CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR";
-        default: return "Unknown OpenCL error (" + std::to_string(error_code) + ")";
-    }
-}
+//std::cerr << #FUNC << " : " << cl_error_str.at(_errorCode) << std::endl << std::flush;

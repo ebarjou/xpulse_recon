@@ -15,13 +15,13 @@ namespace dataset {
      * 
      */
     class Dataset {
-        Parameters *_parameters;
+        reconstruction::dataset::Parameters *_parameters;
         std::vector<std::string> _tiff_files;
-        Geometry _geometry;
-        DataLoader _dataLoader;
+        reconstruction::dataset::Geometry _geometry;
+        reconstruction::dataset::DataLoader _dataLoader;
         
     public:
-        Dataset(Parameters *parameters) : 
+        Dataset(reconstruction::dataset::Parameters *parameters) : 
             _parameters(parameters), 
             _tiff_files(collectFromDirectory(prm_r.input)), //Init prm_g.projections, prm_g.dwidth, _dheight
             _geometry(parameters), //Init all missing fields
@@ -64,21 +64,6 @@ namespace dataset {
         }
 
         /**
-         * @brief get all images of a given SIT
-         * 
-         * @param sit index of the sub-iteration
-         * @return std::vector<float> 
-         */
-        /*std::vector<float> getSitImages(int64_t sit, bool MT = false) {
-            std::vector<float> output(((prm_g.projections-sit)/prm_r.sit)*prm_g.dwidth*prm_g.dheight);
-            #pragma omp parallel for if(MT)
-            for(int i = sit; i < prm_g.projections; i += prm_r.sit) {
-                auto image = _dataLoader.getImage(i);
-                std::copy(image.begin(), image.end(), output.begin()+((i-sit)/prm_r.sit)*prm_g.dwidth*prm_g.dheight);
-            }
-        }*/
-
-        /**
          * @brief get a single image
          * 
          * @param id of the image
@@ -86,6 +71,24 @@ namespace dataset {
          */
         std::valarray<float> getImage(int64_t id) {
             return _dataLoader.getImage(id).getFloatContent();
+        }
+
+        void getImage(int64_t id, std::valarray<float> &dst) {
+            return _dataLoader.getImage(id).getFloatContent(&dst[0]);
+        }
+
+        /**
+         * @brief get a single image
+         * 
+         * @param id of the image
+         * @return std::vector<float> 
+         */
+        std::valarray<float> getImage(std::valarray<uint16_t> ids) {
+            std::valarray<float> output(ids.size()*prm_g.dwidth*prm_g.dheight);
+            for(int i = 0; i < ids.size(); ++i) {
+                _dataLoader.getImage(ids[i]).getFloatContent(&output[i*prm_g.dwidth*prm_g.dheight]);
+            }
+            return output;
         }
 
         /**
@@ -103,7 +106,7 @@ namespace dataset {
          * 
          * @return Geometry* 
          */
-        Geometry* getGeometry() {
+        reconstruction::dataset::Geometry* getGeometry() {
             return &_geometry;
         }
 
@@ -122,7 +125,7 @@ private:
                     if(tiff_files.size() == 0) {
                         _dataLoader.getTiffFileSize(entry.path().string(), width, height);
                     }
-                    if(_dataLoader.checkTiffFile(entry.path().string(), SAMPLEFORMAT_IEEEFP, width, height)) {
+                    if(_dataLoader.checkTiffFile(entry.path().string(), TINYTIFF_SAMPLEFORMAT_FLOAT, width, height)) {
                         tiff_files.push_back(entry.path().string());
                     }
                 }

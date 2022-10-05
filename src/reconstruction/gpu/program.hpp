@@ -5,19 +5,18 @@
 
 #pragma once
 
-#include "kernels/constants.cl"
-
 /**
- * @brief Wrapper class that represent a GPU kernel
+ * @brief Wrapper class that represent a GPU program with a number of kernels
  * 
  */
-class Kernel {
-    Ocl _ocl;
+class Program {
+    reconstruction::gpu::Ocl _ocl;
     cl::Program _program;
-    cl::Kernel _kernel;
+    std::vector<cl::Kernel> _kernel;
     uint32_t x = 1, y = 1, z = 1;
+    uint32_t offset_x = 0, offset_y = 0, offset_z = 0;
 public:
-    Kernel(Ocl &ocl, std::string source, const char *name) :
+    Program(reconstruction::gpu::Ocl &ocl, const std::string source, std::vector<const char *> names) :
             _ocl(ocl)
     {
         cl_int error_program_creation;
@@ -38,45 +37,48 @@ public:
         CHECK(errorCode);
 
         //-cl-uniform-work-group-size -cl-no-subgroup-ifp
-        cl_int error_kernel_creation;
-        _kernel = cl::Kernel{_program, name, &error_kernel_creation};
-        CHECK(error_kernel_creation)
+        for(const char * name : names) {
+            cl_int error_kernel_creation;
+            _kernel.push_back(cl::Kernel{_program, name, &error_kernel_creation});
+            CHECK(error_kernel_creation)
+        }
     }
 
     template <typename T>
-    void setKernelArgument(int64_t index, T value) {
-        CHECK(_kernel.setArg(cl_uint(index), value));
+    void setKernelArgument(int64_t kid, int64_t index, T value) {
+        CHECK(_kernel[kid].setArg(cl_uint(index), value));
     }
 
-    void setKernelArgument(int64_t index, Buffer buffer) {
-        CHECK(_kernel.setArg(cl_uint(index), buffer.handle));
+    void setKernelArgument(int64_t kid, int64_t index, reconstruction::gpu::Buffer buffer) {
+        CHECK(_kernel[kid].setArg(cl_uint(index), buffer.handle));
     }
 
-    void setKernelSizeX(int64_t x) {
+    void setProgramSizeX(int64_t x) {
         this->x = uint32_t(x);
     }
 
-    void setKernelSizeY(int64_t y) {
+    void setProgramSizeY(int64_t y) {
         this->y = uint32_t(y);
     }
 
-    void setKernelSizeZ(int64_t z) {
+    void setProgramSizeZ(int64_t z) {
         this->z = uint32_t(z);
     }
 
-    void setKernelSize(int64_t x, int64_t y = 1, int64_t z = 1) {
+    void setProgramSize(int64_t x, int64_t y = 1, int64_t z = 1) {
         this->x = uint32_t(x);
         this->y = uint32_t(y);
         this->z = uint32_t(z);
     }
 
-    void executeKernel() {
-        uint32_t xGlobal = x + (WAVEFRONT_SIZE - x%WAVEFRONT_SIZE);
-        CHECK(_ocl.queue.enqueueNDRangeKernel(_kernel, cl::NullRange, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
+    void setProgramOffset(int64_t x, int64_t y = 0, int64_t z = 0) {
+        this->offset_x = uint32_t(x);
+        this->offset_y = uint32_t(y);
+        this->offset_z = uint32_t(z);
     }
 
-    void executeKernel(cl::CommandQueue &queue) {
+    void executeKernel(cl::CommandQueue &queue, int64_t kid) {
         uint32_t xGlobal = x + (WAVEFRONT_SIZE - x%WAVEFRONT_SIZE);
-        CHECK(queue.enqueueNDRangeKernel(_kernel, cl::NullRange, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
+        CHECK(queue.enqueueNDRangeKernel(_kernel[kid], cl::NDRange{offset_x, offset_y, offset_z}, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
     }
 };

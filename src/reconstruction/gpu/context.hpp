@@ -11,18 +11,15 @@ enum VENDOR {VENDOR_NVIDIA, VENDOR_AMD, VENDOR_INTEL, VENDOR_OTHER};
 struct Ocl {
     cl::Device device;
     cl::Context context;
-    cl::CommandQueue queue;
-    cl::CommandQueue readQueue;
-    cl::CommandQueue writeQueue;
     uint64_t memorySize = 0, maxAllocSize = 0;
-    VENDOR vendor;
+    reconstruction::gpu::VENDOR vendor;
 };
 
 struct Buffer {
     cl::Buffer handle;
     uint64_t elements;
     uint8_t bytePerSample;
-    MEM_ACCESS kernelAccess, hostAccess;
+    reconstruction::gpu::MEM_ACCESS kernelAccess, hostAccess;
 };
 
 /**
@@ -30,7 +27,7 @@ struct Buffer {
  * 
  */
 class Context {
-    Ocl _ocl;
+    reconstruction::gpu::Ocl _ocl;
 
 public:
     Context() {
@@ -49,7 +46,7 @@ public:
                 uint64_t memorySize = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
                 std::string deviceName = device.getInfo<CL_DEVICE_NAME>();
                 std::string platformName = platform.getInfo<CL_PLATFORM_NAME>();
-                std::cout << "\t\t" << deviceName << " " << memorySize/(1024*1024) << "Mb" << std::endl;
+                std::cout << "\t\t" << device.get() << " - " << deviceName << " " << memorySize/(1024*1024) << "Mb" << std::endl;
                 std::for_each(deviceName.begin(), deviceName.end(), [](char & c) { c = std::tolower(c); });
                 if( (platformName.find("NVIDIA") != std::string::npos || platformName.find("AMD") != std::string::npos) 
                         && memorySize > _ocl.memorySize)
@@ -58,13 +55,13 @@ public:
                     _ocl.memorySize = memorySize;
                     _ocl.maxAllocSize = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
                     if(platformName.find("NVIDIA") != std::string::npos) {
-                        _ocl.vendor = VENDOR_NVIDIA;
+                        _ocl.vendor = reconstruction::gpu::VENDOR_NVIDIA;
                     } else if(platformName.find("AMD") != std::string::npos) {
-                        _ocl.vendor = VENDOR_AMD;
+                        _ocl.vendor = reconstruction::gpu::VENDOR_AMD;
                     } else if(platformName.find("INTEL") != std::string::npos) {
-                        _ocl.vendor = VENDOR_INTEL;
+                        _ocl.vendor = reconstruction::gpu::VENDOR_INTEL;
                     } else  {
-                        _ocl.vendor = VENDOR_OTHER;
+                        _ocl.vendor = reconstruction::gpu::VENDOR_OTHER;
                     }
                 }
             }
@@ -73,29 +70,23 @@ public:
             throw std::runtime_error("No compatible device found");
         }
 
-        std::cout << "Loading OpenCL..." << std::flush;
-        cl_int error_context_creation, error_queue_creation;
+        std::cout << "Creating OpenCL context..." << std::flush;
+        cl_int error_context_creation;
         _ocl.context = cl::Context{ _ocl.device, false, nullptr, nullptr, &error_context_creation};
         CHECK(error_context_creation)
-        _ocl.queue = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
-        CHECK(error_queue_creation)
-        _ocl.readQueue = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
-        CHECK(error_queue_creation)
-        _ocl.writeQueue = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
-        CHECK(error_queue_creation)
         std::cout << "Ok." << std::endl;
         //Get the real available size for our buffers by filling the VRAM until it's full.
         //This method seems to work correctly on NVIDIA but not on AMD gpus since buffers are cached in RAM
         //So otherwise, just take a the total memory minus 256Mb (at least 256Mb are reseverved according to OpenCL devs)
-        switch(_ocl.vendor) {
+        /*switch(_ocl.vendor) {
             case VENDOR_NVIDIA: {
                 _ocl.memorySize = 0;
                 uint32_t sizeStep = 128*1024*1024; //256Mb
-                std::vector<cl::Buffer> buffers;
+                std::valarray<uint8_t>(sizeStep);
+                std::vector<Buffer> buffers;
                 while(true) {
                     try {
                         buffers.push_back(allocateBuffer(sizeStep, MEM_ACCESS_READ, MEM_ACCESS_READ));
-                        wait();
                         _ocl.memorySize += sizeStep;
                     } catch(...) {
                         break;
@@ -107,30 +98,42 @@ public:
             case VENDOR_OTHER: {
                 _ocl.memorySize = _ocl.memorySize -_ocl.memorySize/8;
             }
+        }*/
+        {
+            _ocl.memorySize = 0;
+            int64_t sizeStep = 128*1024*1024; //128Mb
+            std::valarray<uint8_t> mock_content(sizeStep);
+            uint8_t mock_value = 0b10101010;
+            mock_content = mock_value;
+            std::vector<Buffer> buffers;
+            auto queue = createQueue();
+            while(true) {
+                try {
+                    buffers.push_back(createBuffer(mock_content));
+                    std::valarray<uint8_t> ret_value(1);
+                    getBuffer(queue, buffers[buffers.size()-1], sizeStep-1, ret_value, 0, 1, true);
+                    if(ret_value[0] != mock_value) {
+                        throw new std::bad_alloc();
+                    }
+                    _ocl.memorySize += sizeStep;
+                } catch(...) {
+                    break;
+                }
+            }
         }
-        
         std::cout << "Selected " << _ocl.device.getInfo<CL_DEVICE_NAME>() << ": " << _ocl.memorySize/(1024.0*1024.0) << "Mb available, " << _ocl.maxAllocSize/(1024.0*1024.0) << "Mb max per alloc." << std::endl;
     }
 
-    Ocl getOcl() {
+    reconstruction::gpu::Ocl getOcl() {
         return _ocl;
     }
 
     cl::CommandQueue createQueue() {
-        cl_int error_queue_creation;
-        //auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, CL_QUEUE_PROFILING_ENABLE, &error_queue_creation };
-        auto queues = cl::CommandQueue{ _ocl.context, _ocl.device, 0, &error_queue_creation };
-        CHECK(error_queue_creation)
-        return queues;
-    }
-
-    /**
-     * @brief Flush and finish all pending OpenCL call
-     * 
-     */
-    void wait() {
-        CHECK(_ocl.queue.flush());
-        CHECK(_ocl.queue.finish());
+        cl_int error;
+        cl_command_queue_properties props = 0;
+        auto queue = cl::CommandQueue(_ocl.context, _ocl.device, props, &error);
+        CHECK(error)
+        return queue;
     }
 
     /**
@@ -152,9 +155,7 @@ public:
      */
     template <typename T, 
           typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    Buffer createBuffer(uint64_t elements, const MEM_ACCESS kernel = MEM_ACCESS_RW, const MEM_ACCESS host = MEM_ACCESS_RW, const uint8_t sizeAlignment = 0) {
-        if(elements == 0) elements = 1;
-        if(sizeAlignment > 1) elements += sizeAlignment - elements%sizeAlignment;
+    Buffer createBuffer(uint64_t elements, const MEM_ACCESS kernel = MEM_ACCESS_RW, const MEM_ACCESS host = MEM_ACCESS_RW) {
         Buffer buffer;
         buffer.handle = allocateBuffer(elements*sizeof(T), kernel, host);
         buffer.elements = elements;
@@ -171,9 +172,9 @@ public:
      * @param kernel specifies if the buffer will be read/written by a kernel
      * @param host specifies if the buffer will be read/written by the host
      */
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    Buffer createBuffer(std::vector<T> &storage, const MEM_ACCESS kernel = MEM_ACCESS_RW, const MEM_ACCESS host = MEM_ACCESS_RW) {
+    template <class S>
+    Buffer createBuffer(S &storage, const MEM_ACCESS kernel = MEM_ACCESS_RW, const MEM_ACCESS host = MEM_ACCESS_RW) {
+        using T = typename S::value_type;
         Buffer buffer;
         buffer.handle = allocateBuffer(storage.size()*sizeof(T), kernel, host, (void*)&storage[0]);
         buffer.elements = storage.size();
@@ -183,60 +184,38 @@ public:
         return buffer;
     }
 
-    /**
-     * @brief Set the content of a buffer to the one contained in an std::vector
-     * 
-     * @param buffer buffer to process
-     * @param storage vector containing the data to be copied to the buffer
-     * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
-     */
     template <class S>
-    void setBuffer(const Buffer buffer, S &storage, const bool blocking = false) {
+    void getBuffer( const cl::CommandQueue &queue, 
+                    const Buffer src, const int64_t src_offset, 
+                    S &dst, const int64_t dst_offset,
+                    const int64_t elements,
+                    const bool blocking)
+    {
         using T = typename S::value_type;
-        if(storage.size() == 0) return;
-        if(storage.size() > buffer.elements) return;
-        if(sizeof(T) != buffer.bytePerSample) return;
-        if(blocking) {
-            CHECK(_ocl.writeQueue.enqueueWriteBuffer(buffer.handle, CL_TRUE, 0, storage.size()*sizeof(T), &storage[0]));
-        } else {
-            CHECK(_ocl.queue.enqueueWriteBuffer(buffer.handle, CL_FALSE, 0, storage.size()*sizeof(T), &storage[0]));
-        }
+        CHECK(queue.enqueueReadBuffer(src.handle, blocking, src_offset*sizeof(T), elements*sizeof(T), &dst[dst_offset]));
     }
 
     template <class S>
-    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, S &storage, bool blocking = false) {
+    void setBuffer( const cl::CommandQueue &queue, 
+                    Buffer dst, const uint64_t dst_offset, 
+                    const S &src, const uint64_t src_offset, 
+                    const int64_t elements, 
+                    const bool blocking)
+    {
         using T = typename S::value_type;
-        if(storage.size() == 0) return;
-        if(storage.size() > buffer.elements) return;
-        if(sizeof(T) != buffer.bytePerSample) return;
-        CHECK(queue.enqueueWriteBuffer(buffer.handle, blocking, 0, storage.size()*sizeof(T), &storage[0]));
+        CHECK(queue.enqueueWriteBuffer(dst.handle, blocking, dst_offset*sizeof(T), elements*sizeof(T), &src[src_offset]));
     }
 
-    /**
-     * @brief Set the content of a buffer to the one contained in an std::vector
-     * 
-     * @param buffer buffer to process
-     * @param value
-     * @param elements
-     */
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void setBuffer(const Buffer buffer, const T value, bool blocking = false) {
-        if(sizeof(T) != buffer.bytePerSample) return;
+    template <typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
+    void setBuffer( const cl::CommandQueue &queue, 
+                    const Buffer buffer, const T value,
+                    const bool blocking)
+    {
         cl::Event event;
+        CHECK(queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr, &event));
         if(blocking) {
-            CHECK(_ocl.writeQueue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
             event.wait();
-        } else {
-            CHECK(_ocl.queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
         }
-    }
-
-    template <typename T, 
-          typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
-    void setBuffer(cl::CommandQueue &queue, const Buffer buffer, const T value) {
-        if(sizeof(T) != buffer.bytePerSample) return;
-        CHECK(queue.enqueueFillBuffer(buffer.handle, value, 0, buffer.elements*sizeof(T), nullptr));
     }
 
     /**
@@ -249,55 +228,10 @@ public:
     template <typename T, 
           typename = typename std::enable_if<std::is_arithmetic<T>::value, T>::type>
     void copyBuffer(const Buffer dst, const Buffer src) {
-        if(elements == 0) return;
+        if(dst.elements == 0) return;
         if(dst.elements != src.elements) return;
         if(dst.bytePerSample != src.bytePerSample) return;
         CHECK(_ocl.queue.enqueueCopyBuffer(values.handle, buffer.handle, 0, 0, elements*sizeof(T)));
-    }
-
-    /**
-     * @brief Cpopy the content of a buffer to an std::vector (which will be resized by the function)
-     * 
-     * @param buffer buffer to get data from
-     * @param storage vector where the values are copied
-     * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
-     */
-    template <class S>
-    void getBuffer(const Buffer buffer, S &storage, const bool blocking = false) {
-        using T = typename S::value_type;
-        storage.resize(buffer.elements);
-        if(blocking) {
-            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, 0, buffer.elements*sizeof(T), &storage[0]));
-        } else {
-            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, 0, buffer.elements*sizeof(T), &storage[0]));
-        }
-    }
-
-    template <class S>
-    void getBuffer(cl::CommandQueue &queue, const Buffer buffer, S &storage, const bool blocking = false) {
-        using T = typename S::value_type;
-        storage.resize(buffer.elements);
-        CHECK(queue.enqueueReadBuffer(buffer.handle, blocking, 0, buffer.elements*sizeof(T), &storage[0]));
-    }
-
-    /**
-     * @brief Set the content of a buffer to the one contained in an std::vector
-     * 
-     * @param buffer buffer to get data from
-     * @param storage vector where the values are copied
-     * @param offset number of elements to skip at the start of the buffer
-     * @param elements number of elements to copy
-     * @param blocking specifies if the copy is synchronous or not. If set to true, will use a queue dedicated to CPU->GPU transfert.
-     */
-    template <class S>
-    void getBuffer(const Buffer buffer, S &storage, uint64_t offset, uint64_t elements, const bool blocking = false) {
-        using T = typename S::value_type;
-        storage.resize(buffer.elements);
-        if(blocking) {
-            CHECK(_ocl.readQueue.enqueueReadBuffer(buffer.handle, CL_TRUE, offset*sizeof(T), elements*sizeof(T), &storage[0]));
-        } else {
-            CHECK(_ocl.queue.enqueueReadBuffer(buffer.handle, CL_FALSE, offset*sizeof(T), elements*sizeof(T), &storage[0]));
-        }
     }
 
 private:
@@ -328,11 +262,6 @@ private:
         copyFlag = hostPtr?CL_MEM_COPY_HOST_PTR:0;
         cl::Buffer buffer(_ocl.context, kernelFlag|hostFlag|copyFlag, cl::size_type(sizeInByte), hostPtr, &buffer_allocation_error);
         if(buffer_allocation_error != CL_SUCCESS) {
-            throw std::bad_alloc();
-        }
-        //Buffer creation seemes to always return CL_SUCCESS since allocation is lazy, enqueueFillBuffer force the allocation and repport errors correctly
-        uint32_t value = hostPtr ? ((uint32_t*)hostPtr)[0] : 0;
-        if(_ocl.queue.enqueueFillBuffer(buffer, value, 0, 1*sizeof(uint8_t)) != CL_SUCCESS) {
             throw std::bad_alloc();
         }
         return buffer;

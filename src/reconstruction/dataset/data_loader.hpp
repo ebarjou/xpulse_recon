@@ -5,74 +5,6 @@
 
 #pragma once
 
-struct ImageFXP {
-    const static uint16_t MAX_STORAGE_VALUE = 65535;
-    std::valarray<uint16_t> content;
-    float min_value, max_value;
-    int64_t width, height;
-
-    ImageFXP() : content(), min_value(0), max_value(0), width(0), height(0) {};
-    
-    ImageFXP(std::valarray<float> &float_content, int64_t width, int64_t height)
-             : width(width), height(height) {
-        min_value = float_content.min();
-        max_value = float_content.max();
-        if(min_value == max_value) {
-            max_value += 1.0f;
-        }
-        content = std::valarray<uint16_t>(width*height);
-        for(int i = 0; i < width*height; ++i) {
-            float normalized_value = (float_content[i]-min_value)/(max_value-min_value);
-            content[i] = uint16_t( MAX_STORAGE_VALUE * normalized_value);
-        }
-    }
-
-    ImageFXP(std::valarray<uint16_t> &coded_content, int64_t width, int64_t height)
-             : width(width), height(height) {
-        content = std::valarray<uint16_t>(&coded_content[0], width*height);
-        float* values_tag = (float*)&content[0];
-        min_value = values_tag[0];
-        max_value = values_tag[1];
-        for(int i = 0; i < 4; ++i) {
-            content[i] = 0;
-        }
-    }
-
-    std::valarray<float> getFloatContent() {
-        std::valarray<float> float_content(content.size());
-        for(int i = 0; i < content.size(); ++i) {
-            float_content[i] = float(content[i]);
-        }
-        return (float_content/MAX_STORAGE_VALUE)*(max_value-min_value) + min_value;
-    }
-
-    void getFloatContent(float* dst) {
-        for(int i = 0; i < content.size(); ++i) {
-            dst[i] = (float(content[i])/MAX_STORAGE_VALUE)*(max_value-min_value) + min_value;
-        }
-    }
-
-    std::valarray<uint16_t> getCodedContent() {
-        std::valarray<uint16_t> coded_content(&content[0], width*height);
-        float* values_tag = (float*)&coded_content[0];
-        values_tag[0] = min_value;
-        values_tag[1] = max_value;
-        return coded_content;
-    }
-
-    uint16_t* data() {
-        return &content[0];
-    }
-
-    int64_t size() {
-        return int64_t(content.size());
-    }
-
-    bool is_valid() {
-        return content.size() == width*height && content.size() > 0;
-    }
-};
-
 /**
  * @brief Handle the loading and writing of the images and layers from and to the hard-drive
  * Abstract the processing of the images (either pre-process and store in temp file or process at loading time)
@@ -84,7 +16,7 @@ class DataLoader {
     std::string _proj_folder;
 
     int64_t layersInRAMFrequency;
-    std::vector<ImageFXP> layerStorage;
+    std::vector<reconstruction::dataset::ImageFXP> layerStorage;
 
 public:
     DataLoader(reconstruction::dataset::Parameters *parameters, std::vector<std::string> tiff_files) : 
@@ -137,7 +69,7 @@ public:
      * 
      * @param layer index of the layer, from top to bottom
      */
-    ImageFXP getLayer(int64_t layer) {
+    reconstruction::dataset::ImageFXP getLayer(int64_t layer) {
         if(layerStorage[layer].is_valid()) {
             return layerStorage[layer];
         }
@@ -152,11 +84,21 @@ public:
      */
     void saveLayer(std::valarray<float> &image, int64_t layer, bool finalize = false) {
         if(finalize) {
+            saveExternalTIFF(getOutputFilePath("layer", layer, "tif"), &image[0], prm_g.vwidth, prm_g.vwidth);
+        } else if(layer%layersInRAMFrequency == 0) {
+            layerStorage[layer] = reconstruction::dataset::ImageFXP(image, prm_g.vwidth, prm_g.vwidth);
+        } else {
+            saveTIFF(getOutputFilePath("layer", layer, "tif"), reconstruction::dataset::ImageFXP(image, prm_g.vwidth, prm_g.vwidth));
+        }
+    }
+
+    void saveLayer(float *image, int64_t layer, bool finalize = false) {
+        if(finalize) {
             saveExternalTIFF(getOutputFilePath("layer", layer, "tif"), image, prm_g.vwidth, prm_g.vwidth);
         } else if(layer%layersInRAMFrequency == 0) {
-            layerStorage[layer] = ImageFXP(image, prm_g.vwidth, prm_g.vwidth);
+            layerStorage[layer] = reconstruction::dataset::ImageFXP(image, prm_g.vwidth, prm_g.vwidth);
         } else {
-            saveTIFF(getOutputFilePath("layer", layer, "tif"), ImageFXP(image, prm_g.vwidth, prm_g.vwidth));
+            saveTIFF(getOutputFilePath("layer", layer, "tif"), reconstruction::dataset::ImageFXP(image, prm_g.vwidth, prm_g.vwidth));
         }
     }
 
@@ -166,7 +108,7 @@ public:
      * @param id index of the image
      * @return std::vector<float> 
      */
-    ImageFXP getImage(int64_t id) {
+    reconstruction::dataset::ImageFXP getImage(int64_t id) {
         return loadTIFF(getTempFilePath(_proj_folder, "p", id, "tif"));
     }
 
@@ -176,8 +118,12 @@ public:
      * @param id index of the image
      * @return std::vector<float> 
      */
-    ImageFXP getImage(std::string path) {
+    reconstruction::dataset::ImageFXP getImage(std::string path) {
         return loadTIFF(path);
+    }
+
+    void saveImage(float *image, int64_t index, int64_t width, int64_t height) {
+        saveExternalTIFF(getOutputFilePath("image", index, "tif"), image, width, height);
     }
 
     bool checkTiffFile(std::string filename, uint16_t expected_format, uint32_t expected_width, uint32_t expected_height) {
@@ -227,7 +173,7 @@ private:
         return std::string(ss.str());
     }
 
-    void saveTIFF(std::string filename, ImageFXP &image) {
+    void saveTIFF(std::string filename, reconstruction::dataset::ImageFXP &image) {
         TinyTIFFWriterFile* tiffw=TinyTIFFWriter_open(filename.c_str(), 16, TinyTIFFWriter_UInt, 1, uint32_t(image.width), uint32_t(image.height), TinyTIFFWriter_Greyscale);
         if (tiffw) {
             auto coded_content = image.getCodedContent();
@@ -236,7 +182,7 @@ private:
         }
     }
 
-    ImageFXP loadTIFF(std::string filename) {
+    reconstruction::dataset::ImageFXP loadTIFF(std::string filename) {
         TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
         if (!tiffr) { 
             throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
@@ -249,7 +195,7 @@ private:
                 std::valarray<uint16_t> values(width*height);	
                 TinyTIFFReader_getSampleData(tiffr, &values[0], 0);
                 TinyTIFFReader_close(tiffr);
-                return ImageFXP(values, width, height);
+                return reconstruction::dataset::ImageFXP(values, width, height);
             } else {
                 TinyTIFFReader_close(tiffr);
                 throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
@@ -257,15 +203,15 @@ private:
         }
     }
 
-    void saveExternalTIFF(std::string filename, std::valarray<float> &image, int64_t width, int64_t height) {
+    void saveExternalTIFF(std::string filename, float* image, int64_t width, int64_t height) {
         TinyTIFFWriterFile* tiffw=TinyTIFFWriter_open(filename.c_str(), 32, TinyTIFFWriter_Float, 1, uint32_t(width), uint32_t(height), TinyTIFFWriter_Greyscale);
         if (tiffw) {
-            TinyTIFFWriter_writeImage(tiffw, &image[0]);
+            TinyTIFFWriter_writeImage(tiffw, image);
             TinyTIFFWriter_close(tiffw);
         }
     }
 
-    ImageFXP loadExternalTIFF(std::string filename) {
+    reconstruction::dataset::ImageFXP loadExternalTIFF(std::string filename) {
         TinyTIFFReaderFile* tiffr=TinyTIFFReader_open(filename.c_str()); 
         if (!tiffr) { 
             throw new std::exception((std::string("TIFF file ") + filename + std::string(" does not exist.")).c_str());
@@ -279,7 +225,7 @@ private:
                 TinyTIFFReader_getSampleData(tiffr, &values[0], 0);
                 TinyTIFFReader_close(tiffr);
                 processExternalTIFF(values);
-                return ImageFXP(values, width, height);
+                return reconstruction::dataset::ImageFXP(values, width, height);
             } else {
                 TinyTIFFReader_close(tiffr);
                 throw new std::exception("Unsupported TIFF format, only SAMPLEFORMAT_IEEEFP is supported");
@@ -288,11 +234,16 @@ private:
     }
 
     void processExternalTIFF(std::valarray<float> &data) {
-        const float epsilon = 1e-7f;
-        data[data<epsilon] = epsilon;
-        if(prm_r.mlog) {
-            data[data>(1-epsilon)] = 1-epsilon;
-            data = -std::log(data);
+        for(int i = 0; i < data.size(); ++i) {
+            float value = std::clamp(data[i], 0.0f, 1.0f);
+            if(prm_r.mlog) {
+                value = -std::log(value);
+            }
+            //TODO : to improve, better to keep nan for min/max calculation
+            if(value <= 0 || !(std::isfinite(value))) {
+                value = 0;
+            }
+            data[i] = value;
         }
     }
 };

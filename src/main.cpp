@@ -33,6 +33,7 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <pocketfft_hdronly.h>
 #include <tinytiffreader.h>
 #include <tinytiffwriter.h>
+#include <channel.hpp>
 
 #include <iostream>
 #include <vector>
@@ -52,6 +53,8 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #include <numeric>
 #include <math.h>
 #include <map>
+#include <atomic>
+#include <limits>
 
 //Should be in parameters.hpp, but json_struct does not handle namepaces nicely
 JS_ENUM(Method, abs, hartmann, ipr);

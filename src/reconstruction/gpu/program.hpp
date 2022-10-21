@@ -10,17 +10,15 @@
  * 
  */
 class Program {
-    reconstruction::gpu::Ocl _ocl;
     cl::Program _program;
     std::vector<cl::Kernel> _kernel;
     uint32_t x = 1, y = 1, z = 1;
     uint32_t offset_x = 0, offset_y = 0, offset_z = 0;
 public:
-    Program(reconstruction::gpu::Ocl &ocl, const std::string source, std::vector<const char *> names) :
-            _ocl(ocl)
+    Program(reconstruction::gpu::Ocl *ocl, const std::string source, std::vector<const char *> names)
     {
         cl_int error_program_creation;
-        _program = cl::Program{_ocl.context, source, false, &error_program_creation};
+        _program = cl::Program{ocl->context, source, false, &error_program_creation};
         CHECK(error_program_creation)
         cl_int errorCode = _program.build("-cl-fast-relaxed-math\
                                            -cl-mad-enable\
@@ -30,7 +28,7 @@ public:
                                          "); //-cl-std=CL3.0
 
         if (errorCode == CL_BUILD_PROGRAM_FAILURE) {
-            std::string buildLog = _program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(_ocl.device);
+            std::string buildLog = _program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(ocl->device);
             std::cerr << "OpenCl kernel compile output : " << std::endl << buildLog << std::endl;
             throw std::runtime_error("kernel compilation error");
         }
@@ -77,8 +75,8 @@ public:
         this->offset_z = uint32_t(z);
     }
 
-    void executeKernel(cl::CommandQueue &queue, int64_t kid) {
+    void executeKernel(cl::CommandQueue *queue, int64_t kid, cl::Event *event = nullptr) {
         uint32_t xGlobal = x + (WAVEFRONT_SIZE - x%WAVEFRONT_SIZE);
-        CHECK(queue.enqueueNDRangeKernel(_kernel[kid], cl::NDRange{offset_x, offset_y, offset_z}, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}));
+        CHECK(queue->enqueueNDRangeKernel(_kernel[kid], cl::NDRange{offset_x, offset_y, offset_z}, cl::NDRange{xGlobal, y, z}, cl::NDRange{WAVEFRONT_SIZE, 1, 1}, nullptr, event));
     }
 };

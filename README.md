@@ -52,7 +52,6 @@ Here is a minimal example of a parameter file :
         "output" : "./recon/", //Path to the folder that will contain the reconstruction layers, as a stack of TIFF
         "method" : "naive", //Type of memory managment (naive|method_1a|method_1b|method_1c|method_2)
         "it" : 1, //Number of main iterations
-        "sit" : 10, //Number of sub-iterations
         "mlog" : true, //If true, apply '-log' to each images
         "weight" : 1.0, //Initial iteration weight
         "weight_factor" : 0.9, //Iteration weight factor, applied after each main iterations

@@ -1,4 +1,5 @@
 build*/
+xpr/
 .vscode/
 src/reconstruction/gpu/kernels/headers/*.hpp
 traces/

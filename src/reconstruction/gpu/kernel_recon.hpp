@@ -5,7 +5,7 @@
 #define WAVEFRONT_SIZE 32
 
 typedef unsigned int fixed32;
-#define FIXED_FRAC_BITS 24
+#define FIXED_FRAC_BITS 20
 #define FIXED_FRAC_MAX = (1 << (32-FIXED_FRAC_BITS))
 #define FIXED_FRAC_ONE (1 << FIXED_FRAC_BITS)
 #define FIXED_FRAC_ZERO ((fixed32)0)
@@ -38,7 +38,7 @@ enum INDEX_KERNEL_ARG{  INDEX_VOLUME_BUFFER = 0,
 kernel void Forward(    global const float* restrict volume, 
                         global fixed32* restrict sumImages,
                         global const float16* restrict mvpArray,
-                        global const ushort4* restrict vpArray,
+                        global const short4* restrict vpArray,
                         constant const ushort* restrict image_indexes,
                         constant const ushort* restrict mvp_indexes,
                         const float weight,
@@ -49,6 +49,7 @@ kernel void Forward(    global const float* restrict volume,
                         const uint detectorHeight,
                         const uint volumeWidth)
 {
+    //TODO : copier mvp et vp en local async
     const uint4 id = (uint4)(get_global_id(0), get_global_id(2), get_global_id(1), 0);
     const uint3 offset = (uint3)(get_global_offset(0), get_global_offset(2), get_global_offset(1));
     if(id.x > volumeWidth || id.y > volumeWidth)
@@ -63,10 +64,10 @@ kernel void Forward(    global const float* restrict volume,
         const ushort mvp_index = mvp_indexes[i];
         const ushort image_index = image_indexes[i];
         const float16 mvp = mvpArray[mvp_index];
-        const ushort4 vp = vpArray[mvp_index];
+        const short4 vp = vpArray[mvp_index];
         const float2 position2D = MVM_XYW(mvp, position3D);
-        const ushort2 coordinate2D = convert_ushort2(round(position2D));
-        const bool bounds = all( (coordinate2D >= vp.even) && (coordinate2D < vp.odd));
+        const short2 coordinate2D = convert_short2(round(position2D));
+        const bool bounds = all((coordinate2D >= vp.even) && (coordinate2D < vp.odd));
         if(bounds) {
             atomic_add(sumImages+image_index*detectorWidth*detectorHeight + coordinate2D.y*detectorWidth + coordinate2D.x, value);
         }
@@ -76,7 +77,7 @@ kernel void Forward(    global const float* restrict volume,
 kernel void Backward(   global float* restrict volume, 
                         global const float* restrict sumImages,
                         global const float16* restrict mvpArray,
-                        global const ushort4* restrict vpArray,
+                        global const short4* restrict vpArray,
                         constant const ushort* restrict image_indexes,
                         constant const ushort* restrict mvp_indexes,
                         const float weight,
@@ -94,20 +95,20 @@ kernel void Backward(   global float* restrict volume,
     const uint3 id_lin = (id.xyz-offset)*((uint3)(1, volumeWidth*volumeWidth, volumeWidth));
     const float4 position3D = convert_float4(id)*voxelSize + origin;
     position3D.w = 1;
-    
+
     float sum = 0;
     uint contributions = 0;
     for(int i = 0; i < angles; ++i) {
         const ushort mvp_index = mvp_indexes[i];
         const ushort image_index = image_indexes[i];
         const float16 mvp = mvpArray[mvp_index];
-        const ushort4 vp = vpArray[mvp_index];
+        const short4 vp = vpArray[mvp_index];
         const float2 position2D = MVM_XYW(mvp, position3D);
-        const ushort2 coordinate2D = convert_ushort2(round(position2D));
+        const short2 coordinate2D = convert_short2(round(position2D));
         const bool bounds = all((coordinate2D >= vp.even) && (coordinate2D < vp.odd));
         if(bounds) {
             const float value = sumImages[image_index*detectorWidth*detectorHeight + coordinate2D.y*detectorWidth + coordinate2D.x];
-            if(!isnan(value)) {
+            if(isfinite(value) && value > 0) {
                 sum += value;
                 ++contributions;
             }

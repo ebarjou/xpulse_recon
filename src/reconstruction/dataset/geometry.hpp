@@ -15,7 +15,7 @@ protected:
     glm::vec3 source_pos, source_at, object_center;
 public:
     std::valarray<glm::mat4x4> mvpArray;
-    std::valarray<glm::tvec4<uint16_t>> vpArray;
+    std::valarray<glm::tvec4<int16_t>> vpArray;
     std::valarray<uint16_t> imageIndexArray;
     std::valarray<std::set<uint16_t>> mvpIndexPerLayers;
 
@@ -79,7 +79,7 @@ public:
             for(int64_t module_index = 0; module_index < prm_d.module_number; ++module_index) { //For each modules
                 uint64_t mvp_index = i*prm_d.module_number+module_index;
                 auto mvp = computeDetectorProjection(i, module_index);
-                glm::tvec4<uint16_t> vp = {uint16_t(modw*module_index), uint16_t(modw*(module_index+1)), 0, uint16_t(prm_g.dheight)};
+                glm::tvec4<int16_t> vp = {int16_t(modw*module_index), int16_t(modw*(module_index+1)), 0, int16_t(prm_g.dheight)};
                 mvpArray[mvp_index] = mvp;
                 vpArray[mvp_index] = vp;
                 imageIndexArray[mvp_index] = uint16_t(i);
@@ -87,8 +87,10 @@ public:
                     glm::vec2 minmax = minmaxLayerProj(mvp, l);
                     float min = minmax[0];
                     float max = minmax[1];
+                    //TODO : faire le cast ici ?
                     //If the layer projected by the mvp is within its vp, then add it 
-                    if( !(min >= vp[3] && max >= vp[3]) && !(min < vp[2] && max < vp[2]) ) {
+                    //Si min ou max est plus grand que 0, et que min ou max est plus petit que dheight
+                    if ((min >= vp[2] || max >= vp[2]) && (min < vp[3] || max < vp[3])) {
                         #pragma omp critical
                         mvpIndexPerLayers[l].insert(uint16_t(mvp_index));
                     }
@@ -254,6 +256,8 @@ private:
         uint64_t width = prm_g.dwidth/prm_d.module_number;
 
         float module_angle = prm_d.module_angle_offset.assigned ? prm_d.module_angle_offset() : glm::degrees(2.0f*std::atan2(width*0.5f*prm_d.px, glm::distance(module_center, center)));
+
+        //TODO : rotation dans l'autre sens ici ?
         float module_current_angle = module_angle*(module-std::floor(prm_d.module_number/2.0f));
         pa = rotate(pa, module_center, 0, module_current_angle, 0);
         pb = rotate(pb, module_center, 0, module_current_angle, 0);
@@ -273,21 +277,21 @@ private:
      */
     glm::ivec2 minmaxLayerProj(glm::mat4x4 mvp, int64_t layer) {
         std::vector<glm::vec4> bounds{
-            { prm_g.orig.x, prm_g.orig.y-1, -prm_g.orig.z, 1.0f},
-            {-prm_g.orig.x, prm_g.orig.y-1, -prm_g.orig.z, 1.0f},
-            { prm_g.orig.x, prm_g.orig.y-1,  prm_g.orig.z, 1.0f},
-            {-prm_g.orig.x, prm_g.orig.y-1,  prm_g.orig.z, 1.0f},
-            { prm_g.orig.x, prm_g.orig.y+1, -prm_g.orig.z, 1.0f},
-            {-prm_g.orig.x, prm_g.orig.y+1, -prm_g.orig.z, 1.0f},
-            { prm_g.orig.x, prm_g.orig.y+1,  prm_g.orig.z, 1.0f},
-            {-prm_g.orig.x, prm_g.orig.y+1,  prm_g.orig.z, 1.0f}
+            { prm_g.orig.x, prm_g.orig.y-prm_g.vx, -prm_g.orig.z, 1.0f},
+            {-prm_g.orig.x, prm_g.orig.y-prm_g.vx, -prm_g.orig.z, 1.0f},
+            { prm_g.orig.x, prm_g.orig.y-prm_g.vx,  prm_g.orig.z, 1.0f},
+            {-prm_g.orig.x, prm_g.orig.y-prm_g.vx,  prm_g.orig.z, 1.0f},
+            { prm_g.orig.x, prm_g.orig.y+prm_g.vx, -prm_g.orig.z, 1.0f},
+            {-prm_g.orig.x, prm_g.orig.y+prm_g.vx, -prm_g.orig.z, 1.0f},
+            { prm_g.orig.x, prm_g.orig.y+prm_g.vx,  prm_g.orig.z, 1.0f},
+            {-prm_g.orig.x, prm_g.orig.y+prm_g.vx,  prm_g.orig.z, 1.0f}
         };
-        int64_t min = prm_g.vheight*2;
-        int64_t max = -prm_g.vheight;
+        float min = prm_g.vheight*2;
+        float max = -prm_g.vheight;
         int64_t end = bounds.size();
         for(int64_t j = 0; j < end; ++j) {
             glm::vec4 pos = bounds[j] + glm::vec4{0, layer*prm_g.vx, 0, 0};
-            int64_t line = int64_t(project(pos, mvp).y);
+            float line = project(pos, mvp).y;
             min = std::min(min, line);
             max = std::max(max, line);
         }

@@ -11,14 +11,14 @@ struct ReconstructionData {
     std::string proj_output = "";
     Method method = Method::abs;
     
-    int64_t it = 1, sit = 10;
+    int64_t it = 1;
     bool mlog = true;
     float weight = 1.0f, weight_factor = 0.9f;
     bool normalize = false;
     bool simulation = false;
     int64_t usable_ram_go = 12;
 
-    JS_OBJ(input, output, proj_output, method, it, sit, mlog, weight, weight_factor, normalize, simulation, usable_ram_go);
+    JS_OBJ(input, output, proj_output, method, it, mlog, weight, weight_factor, normalize, simulation, usable_ram_go);
 };
 
 struct GeometryData {
@@ -29,7 +29,7 @@ struct GeometryData {
     float vx;
     int64_t dwidth, dheight;
     int64_t vwidth, vheight;
-    int64_t projections, concurrent_projections;
+    int64_t projections;
     glm::vec3 orig;
     std::vector<std::vector<float>> projection_matrices;
 

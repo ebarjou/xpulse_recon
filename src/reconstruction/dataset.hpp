@@ -8,6 +8,7 @@
 namespace dataset {
     #include "dataset/parameters.hpp"
     #include "dataset/geometry.hpp"
+    #include "dataset/image_fxp.hpp"
     #include "dataset/data_loader.hpp"
 
     /**
@@ -53,6 +54,10 @@ namespace dataset {
             return _dataLoader.getLayer(layer).getFloatContent();
         }
 
+        void getLayer(int64_t layer, float* dst) {
+            _dataLoader.getLayer(layer).getFloatContent(dst);
+        }
+
         /**
          * @brief Save the layer contained in data to a single layer file
          * 
@@ -60,6 +65,10 @@ namespace dataset {
          * @param layer index of the layer, from 0 (top layer) to volume height - 1 (bottem layer)
          */
         void saveLayer(std::valarray<float> &data, int64_t layer, bool finalize = false) {
+            _dataLoader.saveLayer(data, layer, finalize);
+        }
+
+        void saveLayer(float *data, int64_t layer, bool finalize = false) {
             _dataLoader.saveLayer(data, layer, finalize);
         }
 
@@ -75,6 +84,10 @@ namespace dataset {
 
         void getImage(int64_t id, std::valarray<float> &dst) {
             return _dataLoader.getImage(id).getFloatContent(&dst[0]);
+        }
+
+        void getImage(int64_t id, float *dst) {
+            return _dataLoader.getImage(id).getFloatContent(dst);
         }
 
         /**
@@ -99,6 +112,10 @@ namespace dataset {
          */
         std::valarray<float> getImage(std::string path) {
             return _dataLoader.getImage(path).getFloatContent();
+        }
+
+        void saveImage(float *data, int64_t index, int64_t width, int64_t height) {
+            _dataLoader.saveImage(data, index, width, height);
         }
 
         /**
@@ -135,7 +152,6 @@ private:
             }
             //Fill parameters accordingly
             prm_g.projections = tiff_files.size();
-            prm_g.concurrent_projections = int64_t(std::floor( float(prm_g.projections) / float(prm_r.sit) ));
             prm_g.dwidth = width;
             prm_g.dheight = height;
             return tiff_files;

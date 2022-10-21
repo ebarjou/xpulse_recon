@@ -48,6 +48,7 @@ include_directories(external/glm/glm)
 include_directories(external/opencl-sdk/external/OpenCL-CLHPP/include)
 include_directories(external/pocketfft)
 include_directories(external/tinytiff/src)
+include_directories(external/msd)
 
 #Setup source files
 set(CPP_LIST src/main.cpp)
